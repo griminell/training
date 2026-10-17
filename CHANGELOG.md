@@ -1,5 +1,10 @@
 # Changelog / Ändringslogg
 
+## 1.4.7 – 2026-10-18
+
+- Diagrammen på statistiksidan klipps inte längre av till vänster: siffrorna på den lodräta axeln syns nu
+- Första punkten i diagrammet Ansträngning över tid ligger inte längre tryckt mot kanten
+
 ## 1.4.6 – 2026-10-17
 
 - Knapparna längst ned följer användarens färgtema och har mer luft

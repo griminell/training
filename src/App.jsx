@@ -5,10 +5,13 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus } from "lucide-react";
 
-export const APP_VERSION = "1.4.6";
-export const APP_DATE = "2026-10-17";
+export const APP_VERSION = "1.4.7";
+export const APP_DATE = "2026-10-18";
 
 const CHANGELOG = [
+  { version: "1.4.7", date: "2026-10-18", items: [
+    "Diagrammen på statistiksidan klipps inte längre av till vänster: siffrorna på den lodräta axeln syns nu",
+    "Första punkten i diagrammet Ansträngning över tid ligger inte längre tryckt mot kanten" ] },
   { version: "1.4.6", date: "2026-10-17", items: [
     "Knapparna längst ned följer användarens färgtema och har mer luft",
     "Annat tillagd som träningstyp" ] },
@@ -141,7 +144,7 @@ function getMe() {
   try { return localStorage.getItem(ME_KEY) || "niva"; } catch (e) { return "niva"; }
 }
 function slugify(n) {
-  return n.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "anv";
+  return n.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "anv";
 }
 function applyTheme(user) {
   const t = themeForUser(user);
@@ -151,6 +154,10 @@ function applyTheme(user) {
 const PAPER = "#FFFFFF";
 const INK = "#232323";
 const MUTED = "#6B6B6B";
+
+// Chart margin. Never use a negative left margin: the Y axis is drawn inside the
+// margin box, so a negative value pushes the tick labels outside the SVG and clips them.
+const CHART_MARGIN = { top: 4, right: 12, left: 0, bottom: 0 };
 
 
 const SPORTS = [
@@ -740,7 +747,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       const csv = [header, ...rows]
         .map((row) => row.map(csvEscape).join(";"))
         .join("\r\n");
-      const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+      const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -756,7 +763,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   }
 
   function parseCsv(text) {
-    const clean = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+    const clean = text.replace(/^﻿/, "").replace(/\r\n/g, "\n");
     const rows = [];
     let row = [];
     let field = "";
@@ -1323,10 +1330,10 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                     BELASTNING PER DAG &nbsp;<span className="font-normal" style={{ color: MUTED }}>(tid × ansträngning)</span>
                   </div>
                   <ResponsiveContainer width="100%" height={180}>
-                    <BarChart data={loadByDate} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                    <BarChart data={loadByDate} margin={CHART_MARGIN}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#EEEEEE" vertical={false} />
                       <XAxis dataKey="date" tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: "#DDDDDD" }} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={30} />
+                      <YAxis tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={40} />
                       <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, borderColor: "#E4E4E4" }} />
                       <Bar dataKey="load" name="Belastning" fill={ACCENT} radius={[3, 3, 0, 0]} />
                     </BarChart>
@@ -1359,10 +1366,10 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                   <Card>
                     <div className="text-xs font-bold mb-3" style={{ color: ACCENT_DARK }}>ANSTRÄNGNING ÖVER TID</div>
                     <ResponsiveContainer width="100%" height={180}>
-                      <LineChart data={kanslaTrend} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                      <LineChart data={kanslaTrend} margin={CHART_MARGIN}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#EEEEEE" vertical={false} />
-                        <XAxis dataKey="date" tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: "#DDDDDD" }} tickLine={false} />
-                        <YAxis domain={[1, 10]} ticks={[1,2,3,4,5,6,7,8,9,10]} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={20} />
+                        <XAxis dataKey="date" padding={{ left: 12, right: 12 }} tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: "#DDDDDD" }} tickLine={false} />
+                        <YAxis domain={[1, 10]} ticks={[1,2,3,4,5,6,7,8,9,10]} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={26} />
                         <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, borderColor: "#E4E4E4" }} />
                         <Line type="monotone" dataKey="kansla" stroke={ACCENT} strokeWidth={2} dot={{ r: 3, fill: ACCENT }} />
                       </LineChart>
@@ -1373,10 +1380,10 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 <Card>
                   <div className="text-xs font-bold mb-3" style={{ color: "#555555" }}>FÖRDELNING TRÄNINGSTYP</div>
                   <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={typeDist} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                    <BarChart data={typeDist} margin={CHART_MARGIN}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#EEEEEE" vertical={false} />
                       <XAxis dataKey="code" tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: "#DDDDDD" }} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={30} allowDecimals={false} />
+                      <YAxis tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
                       <Tooltip
                         contentStyle={{ fontSize: 12, borderRadius: 8, borderColor: "#E4E4E4" }}
                         formatter={(value, name, props) => [value, props.payload.name]}
