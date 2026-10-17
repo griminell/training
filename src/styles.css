@@ -1,0 +1,7 @@
+@tailwind base;@tailwind components;@tailwind utilities;
+html,body{margin:0;min-height:100%;background:#fff;-webkit-text-size-adjust:100%}
+body{min-height:100dvh;overflow-x:clip;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}
+#root{min-height:100dvh}
+button,label,[role=button]{-webkit-user-select:none;user-select:none;touch-action:manipulation}
+input,textarea,select{font-size:16px !important;max-width:100%;-webkit-appearance:none;appearance:none;border-radius:.5rem}
+input[type=date]{min-height:2.5rem}
