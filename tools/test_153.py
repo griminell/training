@@ -53,6 +53,8 @@ with sync_playwright() as pw:
         check("1 Pass/Vilodag/Sjukdag sits above the date picker", kb["y"] + kb["height"] <= db["y"], f"{kb} {db}")
         check("1 Kind group has the full width", kb["width"] > 300 and kb["x"] + kb["width"] <= 390, str(kb))
         check("1 Divider sits between the user choice and the kind group", ub["y"] + ub["height"] <= dv["y"] <= kb["y"] and dv["height"] <= 2, f"{ub} {dv} {kb}")
+        pt = P.evaluate("parseFloat(getComputedStyle(document.querySelector('.max-w-3xl')).paddingTop)")
+        check("1 (1.5.4) More air at the top (>= 40 px) so the title stays clear of the iOS soft edge", pt >= 40, str(pt))
         P.screenshot(path=str(SHOTS / "1_layout.png"), full_page=True)
 
         # ---- 2. Rensa: look ----
@@ -121,8 +123,8 @@ with sync_playwright() as pw:
 
         # ---- 6. Hide / show rest and sick days in the list ----
         tg = P.locator("[data-testid=toggle-offdays]")
-        hb, mb = tg.bounding_box(), P.locator("select[aria-label='Välj månad']").bounding_box()
-        print("INFO toggle", "same row as the month selector" if abs((hb["y"] + hb["height"] / 2) - (mb["y"] + mb["height"] / 2)) < 20 else "wrapped to its own row", hb, mb)
+        hb = tg.bounding_box(); hd = P.locator("div", has_text=re.compile("^LOGGADE PASS")).last.bounding_box()
+        check("6 (1.5.4) Button sits left-aligned directly under the 'Loggade pass' heading", abs(hb["x"] - hd["x"]) < 3 and 0 <= hb["y"] - (hd["y"] + hd["height"]) < 16, f"{hb} {hd}")
         check("6 Button 'Vilo-/sjukdagar (2)' with open eye is shown (2 off days for Niva)", tg.count() == 1 and tg.inner_text().strip() == "Vilo-/sjukdagar (2)" and tg.locator("svg.lucide-eye").count() == 1, tg.inner_text() if tg.count() else "none")
         check("6 Off days are visible by default", P.locator("[data-testid=offday-row]").count() == 2)
         P.screenshot(path=str(SHOTS / "6_visas.png"), full_page=True)

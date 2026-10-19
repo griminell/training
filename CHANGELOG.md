@@ -1,5 +1,10 @@
 # Changelog / Ändringslogg
 
+## 1.5.4 – 2026-10-20
+
+- Mer luft överst: rubriken och knapparna för import och export hamnar nu under iOS mjuka kant
+- Knappen Vilo-/sjukdagar ligger nu vänsterställd direkt under rubriken Loggade pass
+
 ## 1.5.3 – 2026-10-19
 
 - Ny knapp Rensa bredvid Spara: tömmer det du fyllt i, men behåller datum, person och val av Pass/Vilodag/Sjukdag

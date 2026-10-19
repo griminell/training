@@ -5,10 +5,13 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff } from "lucide-react";
 
-export const APP_VERSION = "1.5.3";
-export const APP_DATE = "2026-10-19";
+export const APP_VERSION = "1.5.4";
+export const APP_DATE = "2026-10-20";
 
 const CHANGELOG = [
+  { version: "1.5.4", date: "2026-10-20", items: [
+    "Mer luft överst: rubriken och knapparna för import och export hamnar nu under iOS mjuka kant",
+    "Knappen Vilo-/sjukdagar ligger nu vänsterställd direkt under rubriken Loggade pass" ] },
   { version: "1.5.3", date: "2026-10-19", items: [
     "Ny knapp Rensa bredvid Spara: tömmer det du fyllt i, men behåller datum, person och val av Pass/Vilodag/Sjukdag",
     "Pass / Vilodag / Sjukdag ligger nu ovanför datumet, med en linje som skiljer personvalet från själva loggningen",
@@ -1371,7 +1374,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
 
   return (
     <div className="w-full" style={{ backgroundColor: PAPER, color: INK }}>
-      <div className="max-w-3xl mx-auto px-4 pt-4 pb-2" style={{ paddingTop: "max(1rem, calc(env(safe-area-inset-top) + 0.75rem))", paddingLeft: "max(1rem, env(safe-area-inset-left))", paddingRight: "max(1rem, env(safe-area-inset-right))" }}>
+      <div className="max-w-3xl mx-auto px-4 pt-4 pb-2" style={{ paddingTop: "max(2.5rem, calc(env(safe-area-inset-top) + 1.5rem))", paddingLeft: "max(1rem, env(safe-area-inset-left))", paddingRight: "max(1rem, env(safe-area-inset-right))" }}>
         {/* Header */}
         <div className="flex items-start justify-between gap-2 mb-1">
           <h1 className="text-3xl font-bold tracking-tight min-w-0" style={{ color: INK }}>
@@ -1647,8 +1650,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
             </Card>
 
             <div>
-              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-2">
-              <div className="text-xs font-bold" style={{ color: MUTED }}>
+              <div className="text-xs font-bold mb-2" style={{ color: MUTED }}>
                 LOGGADE PASS · {userName(form.user)} ·{" "}
                 <span className="relative inline-block">
                   {monthLabel(selectedMonth)}
@@ -1669,13 +1671,12 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
               {offDaysInList > 0 && (
                 <button type="button" onClick={toggleHideOffDays} data-testid="toggle-offdays" aria-pressed={hideOffDays}
                         title={hideOffDays ? "Visa vilo- och sjukdagar" : "Dölj vilo- och sjukdagar"}
-                        className="ml-auto flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold border bg-transparent"
+                        className="mb-2 flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold border bg-transparent"
                         style={{ borderColor: "#D5D5D5", color: hideOffDays ? "#B5B5B5" : MUTED }}>
                   {hideOffDays ? <EyeOff size={14} /> : <Eye size={14} />}
                   Vilo-/sjukdagar ({offDaysInList})
                 </button>
               )}
-              </div>
               {queued.length > 0 && (
                 <div className="space-y-2 mb-3">
                   {queued.map((a) => (
