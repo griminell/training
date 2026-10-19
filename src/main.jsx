@@ -136,17 +136,17 @@ function Setup({ onDone }) {
   }
   const inp = "w-full border rounded-lg px-3 py-2 text-sm mb-3";
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "#fff" }}>
-      <div className="w-full max-w-md rounded-xl border p-5" style={{ borderColor: "#E4E4E4" }}>
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "var(--paper)" }}>
+      <div className="w-full max-w-md rounded-xl border p-5" style={{ borderColor: "var(--line)", backgroundColor: "var(--card)", color: "var(--ink)" }}>
         <h1 className="text-xl font-bold mb-1" style={{ color: DARK }}>Koppla till databasen</h1>
-        <p className="text-sm mb-4" style={{ color: "#6B6B6B" }}>Görs en gång. Sedan får du en länk som kopplar Nivas telefon automatiskt.</p>
+        <p className="text-sm mb-4" style={{ color: "var(--muted)" }}>Görs en gång. Sedan får du en länk som kopplar Nivas telefon automatiskt.</p>
         <label className="text-xs font-bold">Databasadress (Firebase)</label>
-        <input className={inp} style={{ borderColor: "#D5D5D5" }} placeholder="https://din-databas-default-rtdb.europe-west1.firebasedatabase.app" value={db} onChange={(e) => setDb(e.target.value)} />
+        <input className={inp} style={{ borderColor: "var(--line2)" }} placeholder="https://din-databas-default-rtdb.europe-west1.firebasedatabase.app" value={db} onChange={(e) => setDb(e.target.value)} />
         <label className="text-xs font-bold">Delningskod</label>
-        <input className={inp} style={{ borderColor: "#D5D5D5" }} value={code} onChange={(e) => setCode(e.target.value)} />
-        <p className="text-xs mb-3" style={{ color: "#6B6B6B" }}>Koden fungerar som lösenord – den som har den kan se och ändra dagboken. Behåll den som den är, eller klistra in koden du redan använder.</p>
-        {err && <p className="text-sm mb-3" style={{ color: "#B00020" }}>{err}</p>}
-        <button onClick={go} disabled={busy} className="w-full rounded-lg py-2 font-semibold text-white" style={{ background: ACCENT }}>{busy ? "Testar…" : "Spara och starta"}</button>
+        <input className={inp} style={{ borderColor: "var(--line2)" }} value={code} onChange={(e) => setCode(e.target.value)} />
+        <p className="text-xs mb-3" style={{ color: "var(--muted)" }}>Koden fungerar som lösenord – den som har den kan se och ändra dagboken. Behåll den som den är, eller klistra in koden du redan använder.</p>
+        {err && <p className="text-sm mb-3" style={{ color: "var(--err)" }}>{err}</p>}
+        <button onClick={go} disabled={busy} className="w-full rounded-lg py-2 font-semibold" style={{ background: ACCENT, color: "#fff" }}>{busy ? "Testar…" : "Spara och starta"}</button>
       </div>
     </div>
   );

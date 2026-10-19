@@ -1,5 +1,13 @@
 @tailwind base;@tailwind components;@tailwind utilities;
-html,body{margin:0;min-height:100%;background:#fff;-webkit-text-size-adjust:100%}
+/* Neutral colours as variables. Keep in sync with NEUTRALS in App.jsx. */
+:root{--paper:#FFFFFF;--card:#FFFFFF;--ink:#232323;--muted:#6B6B6B;--line:#E4E4E4;--line2:#D5D5D5;--hover:#F3F4F6;--on-accent:#FFFFFF;--err:#B00020;--field:#FFFFFF;color-scheme:light}
+html[data-theme=dark]{--paper:#121212;--card:#1C1C1C;--ink:#ECECEC;--muted:#A3A3A3;--line:#2E2E2E;--line2:#3F3F3F;--hover:#2A2A2A;--on-accent:#121212;--err:#FF8A80;--field:#262626;color-scheme:dark}
+html,body{margin:0;min-height:100%;background:var(--paper);color:var(--ink);-webkit-text-size-adjust:100%}
+.bg-card{background-color:var(--card)}
+.text-on-accent{color:var(--on-accent)}
+.hover-soft:hover{background-color:var(--hover)}
+input,select,textarea{background-color:var(--field);color:var(--ink)}
+input::placeholder,textarea::placeholder{color:var(--muted);opacity:.8}
 body{min-height:100dvh;overflow-x:clip;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}
 #root{min-height:100dvh}
 button,label,[role=button]{-webkit-user-select:none;user-select:none;touch-action:manipulation}

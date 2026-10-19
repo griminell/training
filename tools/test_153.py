@@ -47,7 +47,7 @@ def open_app(browser, port, me="niva"):
     return ctx, page
 def clear_btn(P): return P.locator("[data-testid=clear-form]")
 def pressed(P, k): return P.locator(f"[data-testid=kind-{k}]").get_attribute("aria-pressed") == "true"
-def effort_set(P): return P.evaluate("[...document.querySelectorAll('button')].filter(b => /^(10|[1-9])$/.test(b.textContent.trim())).some(b => b.style.backgroundColor !== 'white')")
+def effort_set(P): return P.evaluate("[...document.querySelectorAll('button')].filter(b => /^(10|[1-9])$/.test(b.textContent.trim())).some(b => b.style.backgroundColor !== 'rgb(255, 255, 255)')")
 
 with sync_playwright() as pw:
     browser = pw.chromium.launch()

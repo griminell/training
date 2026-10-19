@@ -1,5 +1,12 @@
 # Changelog / Ändringslogg
 
+## 1.6.0 – 2026-10-20
+
+- Mörkt läge: välj Auto, Ljust eller Mörkt under Utseende i personmenyn. Auto följer telefonens inställning. Valet sparas på enheten
+- Mörk bakgrund och kort i mörkgrått, din färg ljusas upp automatiskt så att den är lätt att läsa
+- Diagram, rutnät, förklaringsrutor, datumväljare och rullistor har även mörka varianter
+- Datum-, månad- och textfält har samma mörka färg överallt
+
 ## 1.5.6 – 2026-10-20
 
 - Längst ned på sidan står nu © 2026 Grim • Bastubacken

@@ -149,11 +149,11 @@ with sync_playwright() as pw:
         check("5 Activity and time filled", pressed(P, "sport-group") == ["Pingis"] and P.input_value("input[inputmode=numeric]") == "20", f"{pressed(P, 'sport-group')} {P.input_value('input[inputmode=numeric]')}")
         check("5 Date and notes untouched", P.input_value("input[type=date]") == d(2) and P.input_value("textarea") == "mina anteckningar")
         bg9 = P.evaluate("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '9').style.backgroundColor")
-        check("5 Effort not overwritten", bg9 != "white", bg9)
+        check("5 Effort not overwritten", bg9 != "rgb(255, 255, 255)", bg9)
         # fresh form: effort is empty after Samma som senast
         reload_ready(P)
         P.locator("[data-testid=same-as-last]").click()
-        any_effort = P.evaluate("[...document.querySelectorAll('button')].filter(b => /^(10|[1-9])$/.test(b.textContent.trim())).some(b => b.style.backgroundColor !== 'white')")
+        any_effort = P.evaluate("[...document.querySelectorAll('button')].filter(b => /^(10|[1-9])$/.test(b.textContent.trim())).some(b => b.style.backgroundColor !== 'rgb(255, 255, 255)')")
         check("5 Effort is NOT filled in by Samma som senast", not any_effort)
         # hidden while editing a saved pass
         P.locator("button[title='Redigera']").first.click(); P.wait_for_timeout(300)

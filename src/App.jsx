@@ -1,14 +1,19 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug } from "lucide-react";
+import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun } from "lucide-react";
 
-export const APP_VERSION = "1.5.6";
+export const APP_VERSION = "1.6.0";
 export const APP_DATE = "2026-10-20";
 
 const CHANGELOG = [
+  { version: "1.6.0", date: "2026-10-20", items: [
+    "Mörkt läge: välj Auto, Ljust eller Mörkt under Utseende i personmenyn. Auto följer telefonens inställning. Valet sparas på enheten",
+    "Mörk bakgrund och kort i mörkgrått, din färg ljusas upp automatiskt så att den är lätt att läsa",
+    "Diagram, rutnät, förklaringsrutor, datumväljare och rullistor har även mörka varianter",
+    "Datum-, månad- och textfält har samma mörka färg överallt" ] },
   { version: "1.5.6", date: "2026-10-20", items: [
     "Längst ned på sidan står nu © 2026 Grim • Bastubacken" ] },
   { version: "1.5.5", date: "2026-10-20", items: [
@@ -89,7 +94,7 @@ function ChangelogModal({ onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.4)" }}
          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-4 overflow-y-auto"
+      <div className="bg-card w-full max-w-md rounded-t-2xl sm:rounded-2xl p-4 overflow-y-auto"
            style={{ maxHeight: "88vh", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-bold" style={{ color: INK }}>Vad är nytt</h2>
@@ -179,16 +184,108 @@ function getMe() {
 function slugify(n) {
   return n.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "anv";
 }
-function applyTheme(user) {
-  const t = themeForUser(user);
+// ---- Neutral palettes (light / dark). Keep in sync with the CSS variables in styles.css. ----
+const NEUTRALS = {
+  light: {
+    PAPER: "#FFFFFF", CARD: "#FFFFFF", INK: "#232323", MUTED: "#6B6B6B", LABEL: "#555555", CTRL: "#444444",
+    FAINT: "#B5B5B5", HINT: "#999999", LINE: "#E4E4E4", LINE2: "#D5D5D5", GRIDC: "#EEEEEE", AXISC: "#DDDDDD",
+    SUBTLE: "#FAFAFA", OFFROW: "#F6F6F6", DANGER: "#B5544A", ERR: "#B00020", ON_ACCENT: "#FFFFFF", NEUTRAL_FILL: "#5B5B5B",
+    WARN_BG: "#FFFBEA", WARN_BORDER: "#C9A227", WARN_BADGE: "#F6D860", WARN_TEXT: "#5C4A00",
+    ERRBOX_BG: "#FDECEA", ERRBOX_BORDER: "#D98880", ERRBOX_TEXT: "#7A1F14",
+    GREYS: ["#B8B8B8", "#8A8A8A", "#6E6E6E", "#555555"],
+  },
+  dark: {
+    PAPER: "#121212", CARD: "#1C1C1C", INK: "#ECECEC", MUTED: "#A3A3A3", LABEL: "#B8B8B8", CTRL: "#D0D0D0",
+    FAINT: "#8A8A8A", HINT: "#8F8F8F", LINE: "#2E2E2E", LINE2: "#3F3F3F", GRIDC: "#2A2A2A", AXISC: "#3F3F3F",
+    SUBTLE: "#222222", OFFROW: "#161616", DANGER: "#E5877C", ERR: "#FF8A80", ON_ACCENT: "#121212", NEUTRAL_FILL: "#BDBDBD",
+    WARN_BG: "#2B2410", WARN_BORDER: "#8A7320", WARN_BADGE: "#5A4A10", WARN_TEXT: "#F3E3A0",
+    ERRBOX_BG: "#3A1A17", ERRBOX_BORDER: "#A5493F", ERRBOX_TEXT: "#FFB4AA",
+    GREYS: ["#E0E0E0", "#BDBDBD", "#9A9A9A", "#7C7C7C"],
+  },
+};
+let PAPER, CARD, INK, MUTED, LABEL, CTRL, FAINT, HINT, LINE, LINE2, GRIDC, AXISC, SUBTLE, OFFROW, DANGER, ERR, ON_ACCENT, NEUTRAL_FILL;
+let WARN_BG, WARN_BORDER, WARN_BADGE, WARN_TEXT, ERRBOX_BG, ERRBOX_BORDER, ERRBOX_TEXT;
+let IS_DARK = false;
+function setNeutrals(dark) {
+  const n = dark ? NEUTRALS.dark : NEUTRALS.light;
+  IS_DARK = !!dark;
+  ({ PAPER, CARD, INK, MUTED, LABEL, CTRL, FAINT, HINT, LINE, LINE2, GRIDC, AXISC, SUBTLE, OFFROW, DANGER, ERR, ON_ACCENT, NEUTRAL_FILL,
+     WARN_BG, WARN_BORDER, WARN_BADGE, WARN_TEXT, ERRBOX_BG, ERRBOX_BORDER, ERRBOX_TEXT } = n);
+}
+setNeutrals(false);
+
+function contrastRatio(a, b) {
+  const la = luminance(a), lb = luminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+// Dark mode: lift a colour (keeping its hue) until it reads on the card (>= 4.5) and dark text reads on it (>= 4.5).
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+  let h = 0, s = 0;
+  if (d) {
+    s = d / (1 - Math.abs(2 * l - 1));
+    h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h *= 60; if (h < 0) h += 360;
+  }
+  return [h, s, l];
+}
+function hslToHex(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  return rgbToHex((r + m) * 255, (g + m) * 255, (b + m) * 255);
+}
+function liftForDark(h) {
+  const bg = NEUTRALS.dark.CARD, ink = NEUTRALS.dark.ON_ACCENT;
+  let c = rgbToHex(...hexToRgb(h));
+  if (contrastRatio(c, bg) >= 4.5 && contrastRatio(c, ink) >= 4.5) return c;
+  const [hue, sat, l0] = rgbToHsl(...hexToRgb(c));
+  const s = Math.min(sat, 0.62);
+  for (let l = Math.max(l0, 0.25); l <= 0.95; l += 0.01) {
+    c = hslToHex(hue, s, l);
+    if (contrastRatio(c, bg) >= 4.5 && contrastRatio(c, ink) >= 4.5) return c;
+  }
+  return c;
+}
+// Dark palette for a user. A stored user.colorDark wins over the computed lift.
+function darkThemeFor(user) {
+  const light = themeForUser(user);
+  const base = liftForDark((user && user.colorDark) || light.accent);
+  const g = NEUTRALS.dark.GREYS;
+  return {
+    accent: base,
+    dark: mixHex(base, "#FFFFFF", 0.12),
+    soft: mixHex(base, NEUTRALS.dark.CARD, 0.82),
+    types: [mixHex(base, "#000000", 0.2), base, mixHex(base, "#FFFFFF", 0.15), mixHex(base, "#FFFFFF", 0.3),
+            mixHex(base, "#FFFFFF", 0.45), mixHex(base, "#FFFFFF", 0.6), g[0], g[1], g[2], g[3]],
+    sports: [base, mixHex(base, "#FFFFFF", 0.45), mixHex(base, "#000000", 0.22), mixHex(base, "#FFFFFF", 0.7), g[1], g[2]],
+  };
+}
+function applyTheme(user, dark) {
+  setNeutrals(dark);
+  const t = dark ? darkThemeFor(user) : themeForUser(user);
   ACCENT = t.accent; ACCENT_DARK = t.dark; ACCENT_SOFT = t.soft;
   TYPE_PALETTE = t.types;
   // 6 base shades + 3 more from the user's own colour, so no two activities share a colour
-  SPORT_COLORS = [...t.sports, mixHex(t.sports[0], "#FFFFFF", 0.25), mixHex(t.sports[0], "#000000", 0.2), mixHex(t.sports[0], "#FFFFFF", 0.6)];
+  SPORT_COLORS = [...t.sports, mixHex(t.sports[0], "#FFFFFF", 0.25), mixHex(t.sports[0], "#000000", dark ? 0.08 : 0.2), mixHex(t.sports[0], "#FFFFFF", 0.6)];
 }
-const PAPER = "#FFFFFF";
-const INK = "#232323";
-const MUTED = "#6B6B6B";
+function userColor(u) { return IS_DARK ? darkThemeFor(u).accent : themeForUser(u).accent; }
+function tipProps() {
+  return {
+    contentStyle: { fontSize: 12, borderRadius: 8, borderColor: LINE, backgroundColor: CARD, color: INK },
+    labelStyle: { color: INK }, itemStyle: { color: INK }, cursor: { fill: GRIDC, fillOpacity: 0.6 },
+  };
+}
+
+// ---- Appearance (Auto / Ljust / Mörkt), saved per device ----
+const THEME_KEY = "nivadagbok-theme";
+const THEME_MODES = [{ id: "auto", label: "Auto" }, { id: "light", label: "Ljust" }, { id: "dark", label: "Mörkt" }];
+function getThemeMode() {
+  try { const v = localStorage.getItem(THEME_KEY); return v === "light" || v === "dark" ? v : "auto"; } catch (e) { return "auto"; }
+}
+function systemPrefersDark() {
+  try { return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches); } catch (e) { return false; }
+}
 
 // Chart margin. Never use a negative left margin: the Y axis is drawn inside the
 // margin box, so a negative value pushes the tick labels outside the SVG and clips them.
@@ -406,7 +503,7 @@ function ChoiceGroup({ items, counts, defaults, selected, color, onToggle, testI
       ))}
       {(open || hidden > 0) && (
         <button type="button" onClick={() => setOpen(!open)} data-testid={`${testId}-more`} aria-expanded={open}
-                className="px-3 py-2 rounded-full text-sm border flex items-center gap-1" style={{ borderColor: "#D5D5D5", color: MUTED }}>
+                className="px-3 py-2 rounded-full text-sm border flex items-center gap-1" style={{ borderColor: LINE2, color: MUTED }}>
           {open ? "Färre" : `Fler (${hidden})`}
           <ChevronDown size={14} style={{ transform: open ? "rotate(180deg)" : "none" }} />
         </button>
@@ -438,18 +535,18 @@ function ConfirmModal({ title, text, confirmLabel, busy, error, onConfirm, onCan
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.4)" }}
          onClick={(e) => { if (e.target === e.currentTarget && !busy) onCancel(); }}>
-      <div role="dialog" aria-modal="true" aria-label={title} className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-4"
+      <div role="dialog" aria-modal="true" aria-label={title} className="bg-card w-full max-w-md rounded-t-2xl sm:rounded-2xl p-4"
            style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
         <h2 className="text-lg font-bold mb-1" style={{ color: INK }}>{title}</h2>
         <p className="text-sm mb-3" style={{ color: INK }}>{text}</p>
-        {error && <p className="text-sm font-semibold mb-3" style={{ color: "#B5544A" }}>{error}</p>}
+        {error && <p className="text-sm font-semibold mb-3" style={{ color: DANGER }}>{error}</p>}
         <div className="grid grid-cols-2 gap-2">
           <button type="button" onClick={onCancel} disabled={busy}
-                  className="rounded-lg text-sm font-semibold border" style={{ minHeight: 44, borderColor: "#D5D5D5", color: "#444444" }}>
+                  className="rounded-lg text-sm font-semibold border" style={{ minHeight: 44, borderColor: LINE2, color: CTRL }}>
             Avbryt
           </button>
           <button type="button" onClick={onConfirm} disabled={busy}
-                  className="rounded-lg text-sm font-bold text-white flex items-center justify-center gap-2" style={{ minHeight: 44, backgroundColor: "#B5544A", opacity: busy ? 0.6 : 1 }}>
+                  className="rounded-lg text-sm font-bold text-on-accent flex items-center justify-center gap-2" style={{ minHeight: 44, backgroundColor: DANGER, opacity: busy ? 0.6 : 1 }}>
             {busy && <Loader2 size={15} className="animate-spin" />}{confirmLabel}
           </button>
         </div>
@@ -476,7 +573,7 @@ function ColorPicker({ value, onChange }) {
           <button key={c} type="button" aria-label={`Färg ${c}`} onClick={() => onChange(c)}
                   className="rounded-full"
                   style={{ width: 30, height: 30, backgroundColor: c,
-                           outline: adjusted.toUpperCase() === c.toUpperCase() ? "3px solid #232323" : "none", outlineOffset: 2 }} />
+                           outline: adjusted.toUpperCase() === c.toUpperCase() ? `3px solid ${INK}` : "none", outlineOffset: 2 }} />
         ))}
         <label className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: MUTED }}>
           <input type="color" value={adjusted.toLowerCase()} onChange={(e) => onChange(e.target.value)}
@@ -554,19 +651,19 @@ function UserManager({ users, localHidden, onLocalHide, onUpdate, onClose }) {
   function showHere(id) { setError(""); onLocalHide(localHidden.filter((x) => x !== id)); }
 
   const form = (
-    <div className="rounded-xl border p-3 mb-3" style={{ borderColor: "#E4E4E4", backgroundColor: "#FAFAFA" }}>
-      <div className="text-xs font-bold mb-1.5" style={{ color: "#555555" }}>NAMN</div>
+    <div className="rounded-xl border p-3 mb-3" style={{ borderColor: LINE, backgroundColor: SUBTLE }}>
+      <div className="text-xs font-bold mb-1.5" style={{ color: LABEL }}>NAMN</div>
       <input value={name} onChange={(e) => setName(e.target.value)} maxLength={20} placeholder="t.ex. Alva"
-             className="w-full border rounded-lg px-3 py-2 text-sm mb-3" style={{ borderColor: "#D5D5D5" }} />
-      <div className="text-xs font-bold mb-1.5" style={{ color: "#555555" }}>FÄRGTEMA</div>
+             className="w-full border rounded-lg px-3 py-2 text-sm mb-3" style={{ borderColor: LINE2 }} />
+      <div className="text-xs font-bold mb-1.5" style={{ color: LABEL }}>FÄRGTEMA</div>
       <ColorPicker value={color} onChange={setColor} />
       <div className="flex gap-2 mt-3">
         <button type="button" onClick={submit} disabled={busy}
-                className="px-4 py-2 rounded-lg text-sm font-semibold text-white"
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-on-accent"
                 style={{ backgroundColor: ensureContrast(color), opacity: busy ? 0.6 : 1 }}>
           {busy ? "Sparar…" : "Spara"}
         </button>
-        <button type="button" onClick={closeForm} className="px-4 py-2 rounded-lg text-sm border" style={{ borderColor: "#D5D5D5", color: MUTED }}>
+        <button type="button" onClick={closeForm} className="px-4 py-2 rounded-lg text-sm border" style={{ borderColor: LINE2, color: MUTED }}>
           Avbryt
         </button>
       </div>
@@ -576,7 +673,7 @@ function UserManager({ users, localHidden, onLocalHide, onUpdate, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.4)" }}
          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-4 overflow-y-auto"
+      <div className="bg-card w-full max-w-md rounded-t-2xl sm:rounded-2xl p-4 overflow-y-auto"
            style={{ maxHeight: "88vh", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-bold" style={{ color: INK }}>Användare</h2>
@@ -585,9 +682,9 @@ function UserManager({ users, localHidden, onLocalHide, onUpdate, onClose }) {
 
         {active.map((u) => (
           editingId === u.id ? <div key={u.id}>{form}</div> : (
-            <div key={u.id} className="py-2 border-b" style={{ borderColor: "#EEEEEE" }}>
+            <div key={u.id} className="py-2 border-b" style={{ borderColor: GRIDC }}>
               <div className="flex items-center gap-3">
-                <span className="inline-block rounded-full" style={{ width: 22, height: 22, backgroundColor: themeForUser(u).accent }} />
+                <span className="inline-block rounded-full" style={{ width: 22, height: 22, backgroundColor: userColor(u) }} />
                 <span className="flex-1 text-sm font-semibold">{u.name}</span>
                 <button type="button" onClick={() => openEdit(u)} aria-label={`Redigera ${u.name}`} className="p-2"><Pencil size={16} style={{ color: MUTED }} /></button>
               </div>
@@ -611,11 +708,11 @@ function UserManager({ users, localHidden, onLocalHide, onUpdate, onClose }) {
 
         {localList.length > 0 && (
           <div className="mt-5">
-            <div className="text-xs font-bold mb-1" style={{ color: "#555555" }}>DOLDA PÅ DEN HÄR ENHETEN</div>
+            <div className="text-xs font-bold mb-1" style={{ color: LABEL }}>DOLDA PÅ DEN HÄR ENHETEN</div>
             <p className="text-xs mb-1" style={{ color: MUTED }}>Syns fortfarande för alla andra. Passen finns kvar.</p>
             {localList.map((u) => (
-              <div key={u.id} className="flex items-center gap-3 py-2 border-b" style={{ borderColor: "#EEEEEE" }}>
-                <span className="inline-block rounded-full" style={{ width: 22, height: 22, backgroundColor: themeForUser(u).accent, opacity: 0.4 }} />
+              <div key={u.id} className="flex items-center gap-3 py-2 border-b" style={{ borderColor: GRIDC }}>
+                <span className="inline-block rounded-full" style={{ width: 22, height: 22, backgroundColor: userColor(u), opacity: 0.4 }} />
                 <span className="flex-1 text-sm" style={{ color: MUTED }}>{u.name}</span>
                 <button type="button" onClick={() => showHere(u.id)} className="flex items-center gap-1.5 text-sm font-semibold p-2" style={{ color: ACCENT_DARK }}>
                   <Eye size={16} /> Visa
@@ -627,11 +724,11 @@ function UserManager({ users, localHidden, onLocalHide, onUpdate, onClose }) {
 
         {archived.length > 0 && (
           <div className="mt-5">
-            <div className="text-xs font-bold mb-1" style={{ color: "#555555" }}>ARKIVERADE</div>
+            <div className="text-xs font-bold mb-1" style={{ color: LABEL }}>ARKIVERADE</div>
             <p className="text-xs mb-1" style={{ color: MUTED }}>Dolda för alla enheter. Passen finns kvar och kommer tillbaka när du återställer användaren.</p>
             {archived.map((u) => (
-              <div key={u.id} className="flex items-center gap-3 py-2 border-b" style={{ borderColor: "#EEEEEE" }}>
-                <span className="inline-block rounded-full" style={{ width: 22, height: 22, backgroundColor: themeForUser(u).accent, opacity: 0.4 }} />
+              <div key={u.id} className="flex items-center gap-3 py-2 border-b" style={{ borderColor: GRIDC }}>
+                <span className="inline-block rounded-full" style={{ width: 22, height: 22, backgroundColor: userColor(u), opacity: 0.4 }} />
                 <span className="flex-1 text-sm" style={{ color: MUTED }}>{u.name}</span>
                 <button type="button" onClick={() => archive(u.id, false)} disabled={busy} className="flex items-center gap-1.5 text-sm font-semibold p-2" style={{ color: ACCENT_DARK }}>
                   <Eye size={16} /> Återställ
@@ -640,7 +737,7 @@ function UserManager({ users, localHidden, onLocalHide, onUpdate, onClose }) {
             ))}
           </div>
         )}
-        {error && <p className="text-sm font-semibold mt-3" style={{ color: "#B5544A" }}>{error}</p>}
+        {error && <p className="text-sm font-semibold mt-3" style={{ color: DANGER }}>{error}</p>}
       </div>
     </div>
   );
@@ -655,9 +752,9 @@ function Pill({ active, color, onClick, children, title }) {
       aria-pressed={active}
       className="px-3 py-2 rounded-full text-sm font-semibold border transition-colors select-none"
       style={{
-        borderColor: active ? color : "#D5D5D5",
-        backgroundColor: active ? color : "white",
-        color: active ? "white" : "#444444",
+        borderColor: active ? color : LINE2,
+        backgroundColor: active ? color : CARD,
+        color: active ? ON_ACCENT : CTRL,
       }}
     >
       {children}
@@ -668,8 +765,8 @@ function Pill({ active, color, onClick, children, title }) {
 function Card({ children, className = "" }) {
   return (
     <div
-      className={`rounded-xl border p-4 bg-white ${className}`}
-      style={{ borderColor: "#E4E4E4" }}
+      className={`rounded-xl border p-4 bg-card ${className}`}
+      style={{ borderColor: LINE }}
     >
       {children}
     </div>
@@ -742,8 +839,31 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     try { localStorage.setItem(LOCAL_HIDDEN_KEY, JSON.stringify(next)); } catch (e) {}
   }
   const activeUserId = view === "stats" ? statsUser : form.user;
-  applyTheme(users.find((u) => u.id === activeUserId) || visibleUsers[0] || DEFAULT_USERS[0]);
-  const chipColor = themeForUser(users.find((u) => u.id === form.user) || visibleUsers[0] || DEFAULT_USERS[0]).accent;
+  const [themeMode, setThemeModeState] = useState(getThemeMode);
+  const [sysDark, setSysDark] = useState(systemPrefersDark);
+  const darkMode = themeMode === "dark" || (themeMode === "auto" && sysDark);
+  applyTheme(users.find((u) => u.id === activeUserId) || visibleUsers[0] || DEFAULT_USERS[0], darkMode);
+  function setThemeMode(m) {
+    setThemeModeState(m);
+    try { localStorage.setItem(THEME_KEY, m); } catch (e) {}
+  }
+  // Follow the phone's setting live while the mode is Auto
+  useEffect(() => {
+    let mq;
+    try { mq = window.matchMedia("(prefers-color-scheme: dark)"); } catch (e) { return undefined; }
+    if (!mq) return undefined;
+    const on = (e) => setSysDark(!!e.matches);
+    if (mq.addEventListener) mq.addEventListener("change", on); else if (mq.addListener) mq.addListener(on);
+    return () => { if (mq.removeEventListener) mq.removeEventListener("change", on); else if (mq.removeListener) mq.removeListener(on); };
+  }, []);
+  // Tell the browser which scheme is active (date picker, selects, scrollbars, status bar)
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.dataset.theme = darkMode ? "dark" : "light";
+    root.style.colorScheme = darkMode ? "dark" : "light";
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute("content", darkMode ? NEUTRALS.dark.PAPER : NEUTRALS.light.PAPER));
+  }, [darkMode]);
+  const chipColor = userColor(users.find((u) => u.id === form.user) || visibleUsers[0] || DEFAULT_USERS[0]);
   const userName = (id) => (users.find((u) => u.id === id) || {}).name || id;
 
   const loadUsers = useCallback(async () => {
@@ -1399,7 +1519,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
           <div className="relative mt-1 shrink-0">
             <button type="button" data-testid="person-chip" aria-haspopup="menu" aria-expanded={showMenu}
                     onClick={() => { setLinkCopied(false); setShowMenu((v) => !v); }}
-                    className="relative z-40 flex items-center gap-2 pl-3 pr-2 py-2 rounded-full text-sm font-semibold border bg-white"
+                    className="relative z-40 flex items-center gap-2 pl-3 pr-2 py-2 rounded-full text-sm font-semibold border bg-card"
                     style={{ borderColor: chipColor, color: INK }}>
               <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: chipColor }} />
               {userName(form.user)}
@@ -1414,23 +1534,42 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
             {showMenu && (
               <>
                 <div className="fixed inset-0 z-30" data-testid="person-menu-backdrop" onClick={() => setShowMenu(false)} />
-                <div role="menu" data-testid="person-menu" className="absolute right-0 top-full mt-2 z-40 w-64 rounded-xl border bg-white shadow-lg overflow-hidden"
-                     style={{ borderColor: "#E4E4E4" }}>
+                <div role="menu" data-testid="person-menu" className="absolute right-0 top-full mt-2 z-40 w-64 rounded-xl border bg-card shadow-lg overflow-hidden"
+                     style={{ borderColor: LINE }}>
                   <div className="px-4 pt-3 pb-1 text-xs font-bold" style={{ color: MUTED }}>LOGGAR SOM</div>
                   {visibleUsers.map((u) => (
                     <button key={u.id} type="button" role="menuitemradio" aria-checked={form.user === u.id} data-testid={`person-${u.id}`}
                             onClick={() => { setForm((f) => ({ ...f, user: u.id })); setShowMenu(false); }}
                             className="w-full flex items-center gap-3 px-4 text-sm text-left" style={{ minHeight: 44, color: INK }}>
-                      <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: themeForUser(u).accent }} />
+                      <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: userColor(u) }} />
                       <span className="flex-1" style={{ fontWeight: form.user === u.id ? 700 : 500 }}>{u.name}</span>
-                      {form.user === u.id && <Check size={16} style={{ color: themeForUser(u).accent }} />}
+                      {form.user === u.id && <Check size={16} style={{ color: userColor(u) }} />}
                     </button>
                   ))}
                   <button type="button" role="menuitem" data-testid="person-manage" onClick={() => { setShowMenu(false); setShowUsers(true); }}
                           className="w-full flex items-center gap-3 px-4 text-sm text-left" style={{ minHeight: 44, color: MUTED }}>
                     <Users size={16} /> Hantera användare
                   </button>
-                  <div className="border-t my-1" style={{ borderColor: "#E4E4E4" }} />
+                  <div className="border-t my-1" style={{ borderColor: LINE }} />
+                  <div className="px-4 pt-2 pb-2" data-testid="theme-row">
+                    <div className="flex items-center gap-2 text-sm mb-2" style={{ color: INK }}>
+                      {darkMode ? <Moon size={16} style={{ color: MUTED }} /> : <Sun size={16} style={{ color: MUTED }} />} Utseende
+                    </div>
+                    <div role="radiogroup" aria-label="Utseende" className="flex rounded-lg border overflow-hidden" style={{ borderColor: LINE2 }}>
+                      {THEME_MODES.map((m, i) => {
+                        const on = themeMode === m.id;
+                        return (
+                          <button key={m.id} type="button" role="radio" aria-checked={on} data-testid={`theme-${m.id}`}
+                                  onClick={() => setThemeMode(m.id)}
+                                  className="flex-1 text-sm font-semibold"
+                                  style={{ minHeight: 44, backgroundColor: on ? ACCENT : CARD, color: on ? ON_ACCENT : CTRL, borderLeft: i ? `1px solid ${LINE2}` : "none" }}>
+                            {m.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="border-t my-1" style={{ borderColor: LINE }} />
                   <button type="button" role="menuitem" data-testid="menu-import" disabled={importing}
                           onClick={() => { setShowMenu(false); importRef.current && importRef.current.click(); }}
                           title="Importera pass från en tidigare CSV-export (t.ex. efter en uppdatering)"
@@ -1445,7 +1584,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                   </button>
                   {connLink && (
                     <>
-                      <div className="border-t my-1" style={{ borderColor: "#E4E4E4" }} />
+                      <div className="border-t my-1" style={{ borderColor: LINE }} />
                       <button type="button" role="menuitem" data-testid="menu-copylink"
                               onClick={() => {
                                 try { const r = navigator.clipboard && navigator.clipboard.writeText(connLink); if (r && r.catch) r.catch(() => {}); } catch (e) {}
@@ -1457,7 +1596,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                       </button>
                       <button type="button" role="menuitem" data-testid="menu-disconnect"
                               onClick={() => { setShowMenu(false); setConfirmError(null); setConfirmDlg({ kind: "disconnect" }); }}
-                              className="w-full flex items-center gap-3 px-4 text-sm text-left" style={{ minHeight: 44, color: "#B5544A" }}>
+                              className="w-full flex items-center gap-3 px-4 text-sm text-left" style={{ minHeight: 44, color: DANGER }}>
                         <Unplug size={16} /> Koppla bort enheten
                       </button>
                     </>
@@ -1468,7 +1607,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
           </div>
         </div>
         {importMsg && (
-          <p className="text-xs font-semibold mb-1 text-right" style={{ color: importMsg.ok ? ACCENT_DARK : "#B5544A" }}>
+          <p className="text-xs font-semibold mb-1 text-right" style={{ color: importMsg.ok ? ACCENT_DARK : DANGER }}>
             {importMsg.text}
           </p>
         )}
@@ -1477,7 +1616,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         </p>
 
         {/* Tabs */}
-        <div className="flex gap-2 mb-5 border-b" style={{ borderColor: "#E4E4E4" }}>
+        <div className="flex gap-2 mb-5 border-b" style={{ borderColor: LINE }}>
           <button
             onClick={() => setView("logga")}
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors"
@@ -1503,8 +1642,8 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         {queued.length > 0 && (
           <div role="status" className="rounded-lg p-3 mb-4 flex items-start gap-2 text-sm"
                style={maxAttempts >= 3
-                 ? { backgroundColor: "#FDECEA", border: "1px solid #D98880", color: "#7A1F14" }
-                 : { backgroundColor: "#FFFBEA", border: "1px solid #E6C84F", color: "#5C4A00" }}>
+                 ? { backgroundColor: ERRBOX_BG, border: `1px solid ${ERRBOX_BORDER}`, color: ERRBOX_TEXT }
+                 : { backgroundColor: WARN_BG, border: `1px solid ${WARN_BORDER}`, color: WARN_TEXT }}>
             <AlertTriangle size={16} className="shrink-0 mt-0.5" />
             <div>
               {maxAttempts >= 3 ? (
@@ -1527,7 +1666,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
             <Card>
               {(editingId || editingPending) && (
                 <div className="flex items-center justify-between mb-4 pb-3 border-b"
-                     style={{ borderColor: "#E4E4E4" }}>
+                     style={{ borderColor: LINE }}>
                   <div className="flex items-center gap-1.5 text-xs font-bold" style={{ color: ACCENT_DARK }}>
                     <Pencil size={13} /> {editingPending ? "Redigerar osparat pass" : "Redigerar loggat pass"}
                   </div>
@@ -1543,14 +1682,14 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
 
               {/* What is logged (Pass / Vilodag / Sjukdag) comes before the date, so the date is not forgotten when logging several days */}
               <div role="group" aria-label="Typ" data-testid="kind-group" className="flex w-full rounded-lg border overflow-hidden mb-4"
-                   style={{ borderColor: "#D5D5D5" }}>
+                   style={{ borderColor: LINE2 }}>
                 {["pass", "rest", "sick"].map((k, i) => {
                   const on = form.kind === k;
                   return (
                     <button key={k} type="button" data-testid={`kind-${k}`} aria-pressed={on}
                             onClick={() => setForm((f) => ({ ...f, kind: k }))}
                             className="flex-1 py-2 text-sm font-semibold"
-                            style={{ backgroundColor: on ? ACCENT : "white", color: on ? "white" : "#444444", borderLeft: i ? "1px solid #D5D5D5" : "none" }}>
+                            style={{ backgroundColor: on ? ACCENT : CARD, color: on ? ON_ACCENT : CTRL, borderLeft: i ? `1px solid ${LINE2}` : "none" }}>
                       {kindLabel(k)}
                     </button>
                   );
@@ -1564,7 +1703,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                   value={form.date}
                   onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
                   className="border rounded-lg px-3 py-2 text-sm"
-                  style={{ borderColor: "#D5D5D5" }}
+                  style={{ borderColor: LINE2 }}
                 />
               </div>
 
@@ -1588,16 +1727,16 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
               </div>
 
               <div className="mb-4">
-                <div className="text-xs font-bold mb-2" style={{ color: "#555555" }}>
+                <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
                   TRÄNINGSTYP
                 </div>
-                <ChoiceGroup key={`typ-${formEpoch}`} testId="typ-group" items={TYPES} defaults={DEFAULT_TYPES} color="#5B5B5B"
+                <ChoiceGroup key={`typ-${formEpoch}`} testId="typ-group" items={TYPES} defaults={DEFAULT_TYPES} color={NEUTRAL_FILL}
                              counts={(usage && usage[form.user] && usage[form.user].typ) || NO_COUNTS}
                              selected={form.typ} onToggle={toggleTyp} />
               </div>
 
               <div className="mb-4" style={{ maxWidth: "50%" }}>
-                  <div className="text-xs font-bold mb-2" style={{ color: "#555555" }}>
+                  <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
                     TID (MIN)
                   </div>
                   <input
@@ -1605,11 +1744,11 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                     value={form.tid}
                     onChange={(e) => setForm((f) => ({ ...f, tid: e.target.value }))}
                     className="border rounded-lg px-3 py-2 text-sm w-full"
-                    style={{ borderColor: "#D5D5D5" }}
+                    style={{ borderColor: LINE2 }}
                   />
               </div>
               <div className="mb-4">
-                <div className="text-xs font-bold mb-2" style={{ color: "#555555" }}>
+                <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
                   ANSTRÄNGNING (1–10)
                 </div>
                 <div className="grid grid-cols-5 gap-1.5">
@@ -1619,25 +1758,25 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                       onClick={() => setForm((f) => ({ ...f, kansla: String(n) }))}
                       className="py-2 rounded-lg text-sm font-bold border"
                       style={{
-                        borderColor: form.kansla === String(n) ? ACCENT : "#D5D5D5",
-                        backgroundColor: form.kansla === String(n) ? ACCENT : "white",
-                        color: form.kansla === String(n) ? "white" : "#444444",
+                        borderColor: form.kansla === String(n) ? ACCENT : LINE2,
+                        backgroundColor: form.kansla === String(n) ? ACCENT : CARD,
+                        color: form.kansla === String(n) ? ON_ACCENT : CTRL,
                       }}
                     >
                       {n}
                     </button>
                   ))}
                 </div>
-                <p className="text-xs mt-1.5" style={{ color: "#999999" }}>
+                <p className="text-xs mt-1.5" style={{ color: HINT }}>
                   1 = Mycket lätt · 3 = Måttligt · 5 = Tungt · 7 = Mycket tungt · 10 = Maximalt
                 </p>
-                <p className="text-xs mt-0.5" style={{ color: "#B5B5B5" }}>
+                <p className="text-xs mt-0.5" style={{ color: FAINT }}>
                   Skala enligt Borg CR10.
                 </p>
               </div>
               </>)}
               <div className="mb-4">
-                <div className="text-xs font-bold mb-2" style={{ color: "#555555" }}>
+                <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
                   ANTECKNINGAR
                 </div>
                 <textarea
@@ -1646,7 +1785,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                   placeholder={isOff ? (form.kind === "sick" ? "Hur mår du? Något som är bra att komma ihåg?" : "Hur kändes kroppen? Varför vila?") : "Vad gjorde ni? Hur kändes det?"}
                   rows={3}
                   className="border rounded-lg px-3 py-2 text-sm w-full resize-none"
-                  style={{ borderColor: "#D5D5D5" }}
+                  style={{ borderColor: LINE2 }}
                 />
               </div>
 
@@ -1654,7 +1793,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
               <button
                 onClick={handleSave}
                 disabled={!canSave}
-                className="flex-1 py-2.5 rounded-lg text-sm font-bold text-white transition-opacity flex items-center justify-center gap-2"
+                className="flex-1 py-2.5 rounded-lg text-sm font-bold text-on-accent transition-opacity flex items-center justify-center gap-2"
                 style={{ backgroundColor: ACCENT, opacity: canSave ? 1 : 0.45 }}
               >
                 {saving ? (<><Loader2 size={16} className="animate-spin" /> Sparar…</>)
@@ -1673,7 +1812,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
               </button>
               </div>
               {saveError && (
-                <p className="text-sm mt-2" role="alert" data-testid="save-error" style={{ color: "#B00020" }}>{saveError}</p>
+                <p className="text-sm mt-2" role="alert" data-testid="save-error" style={{ color: ERR }}>{saveError}</p>
               )}
               {!isOff && form.sport.length === 0 && (
                 <p className="text-xs mt-2" style={{ color: MUTED }}>
@@ -1705,7 +1844,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 <button type="button" onClick={toggleHideOffDays} data-testid="toggle-offdays" aria-pressed={hideOffDays}
                         title={hideOffDays ? "Visa vilo- och sjukdagar" : "Dölj vilo- och sjukdagar"}
                         className="mb-2 flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold border bg-transparent"
-                        style={{ borderColor: "#D5D5D5", color: hideOffDays ? "#B5B5B5" : MUTED }}>
+                        style={{ borderColor: LINE2, color: hideOffDays ? FAINT : MUTED }}>
                   {hideOffDays ? <EyeOff size={14} /> : <Eye size={14} />}
                   Vilo-/sjukdagar ({offDaysInList})
                 </button>
@@ -1714,33 +1853,33 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 <div className="space-y-2 mb-3">
                   {queued.map((a) => (
                     <div key={a.qid} data-testid="pending-card" className="rounded-lg p-3 text-sm"
-                         style={{ border: "1.5px dashed #C9A227", backgroundColor: "#FFFBEA" }}>
+                         style={{ border: `1.5px dashed ${WARN_BORDER}`, backgroundColor: WARN_BG }}>
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ backgroundColor: "#F6D860", color: "#5C4A00" }}>Ej sparat</span>
+                        <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ backgroundColor: WARN_BADGE, color: WARN_TEXT }}>Ej sparat</span>
                         <span className="font-semibold">{userName(a.entry.user || "niva")}</span>
                       </div>
                       <div style={{ color: INK }} data-testid="pending-line">{entryLine(a.entry)}</div>
                       {a.stage === 1 && (
-                        <p className="text-xs mt-1" style={{ color: "#5C4A00" }}>
+                        <p className="text-xs mt-1" style={{ color: WARN_TEXT }}>
                           Passet är sparat i den nya månaden men finns kvar i den gamla tills flytten är klar.
                         </p>
                       )}
                       <div className="flex flex-wrap gap-2 mt-2">
                         <button type="button" onClick={() => retryPending(a.qid)} disabled={retryingQid === a.qid}
                                 className="flex items-center gap-1.5 px-3 rounded-lg text-xs font-bold border"
-                                style={{ minHeight: 40, borderColor: ACCENT, color: ACCENT_DARK, backgroundColor: "white" }}>
+                                style={{ minHeight: 40, borderColor: ACCENT, color: ACCENT_DARK, backgroundColor: CARD }}>
                           {retryingQid === a.qid ? <Loader2 size={13} className="animate-spin" /> : <RotateCw size={13} />} Spara igen
                         </button>
                         {a.stage !== 1 && (
                           <>
                             <button type="button" onClick={() => startEditPending(a)}
                                     className="flex items-center gap-1.5 px-3 rounded-lg text-xs font-semibold border"
-                                    style={{ minHeight: 40, borderColor: "#D5D5D5", color: "#444444", backgroundColor: "white" }}>
+                                    style={{ minHeight: 40, borderColor: LINE2, color: CTRL, backgroundColor: CARD }}>
                               <Pencil size={13} /> Redigera
                             </button>
                             <button type="button" onClick={() => askDeletePending(a)}
                                     className="flex items-center gap-1.5 px-3 rounded-lg text-xs font-semibold border"
-                                    style={{ minHeight: 40, borderColor: "#D5D5D5", color: "#B5544A", backgroundColor: "white" }}>
+                                    style={{ minHeight: 40, borderColor: LINE2, color: DANGER, backgroundColor: CARD }}>
                               <Trash2 size={13} /> Radera
                             </button>
                           </>
@@ -1769,7 +1908,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                     const off = isOffDay(e);
                     return (
                       <div key={e.id} data-testid={off ? "offday-row" : "pass-row"} className="rounded-lg border text-sm overflow-hidden"
-                           style={{ borderColor: "#E4E4E4", backgroundColor: off ? "#F6F6F6" : "white" }}>
+                           style={{ borderColor: LINE, backgroundColor: off ? OFFROW : CARD }}>
                         <div
                           onClick={() => toggleExpand(e.id)}
                           className="flex items-center justify-between px-3 py-2 cursor-pointer select-none"
@@ -1803,24 +1942,24 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                                 )}
                               </span>
                               {hasNote && !isExpanded && (
-                                <span className="truncate min-w-0 flex-1" style={{ color: "#B5B5B5" }}>· {preview}</span>
+                                <span className="truncate min-w-0 flex-1" style={{ color: FAINT }}>· {preview}</span>
                               )}
                             </div>
                           </div>
                           <div className="flex items-center gap-0.5 shrink-0 ml-2">
                             <button
                               onClick={(ev) => { ev.stopPropagation(); startEdit(e); }}
-                              className="p-1 rounded hover:bg-gray-100"
+                              className="p-1 rounded hover-soft"
                               title="Redigera"
                             >
                               <Pencil size={14} style={{ color: MUTED }} />
                             </button>
                             <button
                               onClick={(ev) => { ev.stopPropagation(); askDelete(e); }}
-                              className="p-1 rounded hover:bg-gray-100"
+                              className="p-1 rounded hover-soft"
                               title="Ta bort"
                             >
-                              <Trash2 size={15} style={{ color: "#B5544A" }} />
+                              <Trash2 size={15} style={{ color: DANGER }} />
                             </button>
                           </div>
                         </div>
@@ -1831,7 +1970,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                                 {e.anteckningar}
                               </p>
                             ) : (
-                              <p className="text-xs italic" style={{ color: "#B5B5B5" }}>
+                              <p className="text-xs italic" style={{ color: FAINT }}>
                                 Ingen anteckning för {off ? (e.kind === "sick" ? "den här sjukdagen" : "den här vilodagen") : "det här passet"}.
                               </p>
                             )}
@@ -1854,7 +1993,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
               </div>
               <div className="flex flex-wrap gap-2">
                 {visibleUsers.map((u) => (
-                  <Pill key={u.id} active={statsUser === u.id} color={themeForUser(u).accent}
+                  <Pill key={u.id} active={statsUser === u.id} color={userColor(u)}
                         onClick={() => setStatsUser(u.id)}>
                     {u.name}
                   </Pill>
@@ -1868,7 +2007,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 onChange={(e) => { setSelectedMonth(e.target.value); setStatsScope("month"); }}
                 disabled={statsScope === "all"}
                 className="border rounded-lg px-3 py-2 text-sm"
-                style={{ borderColor: "#D5D5D5", opacity: statsScope === "all" ? 0.5 : 1 }}
+                style={{ borderColor: LINE2, opacity: statsScope === "all" ? 0.5 : 1 }}
               >
                 {allMonths.map((m) => (
                   <option key={m} value={m}>{monthLabel(m)}</option>
@@ -1928,10 +2067,10 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                   </div>
                   <ResponsiveContainer width="100%" height={180}>
                     <BarChart data={loadByDate} margin={CHART_MARGIN}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#EEEEEE" vertical={false} />
-                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: "#DDDDDD" }} tickLine={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={GRIDC} vertical={false} />
+                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: AXISC }} tickLine={false} />
                       <YAxis tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={40} />
-                      <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, borderColor: "#E4E4E4" }} />
+                      <Tooltip {...tipProps()} />
                       <Bar dataKey="load" name="Belastning" fill={ACCENT} radius={[3, 3, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -1947,7 +2086,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                             <Cell key={entry.name} fill={sportColor(entry.code)} />
                           ))}
                         </Pie>
-                        <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, borderColor: "#E4E4E4" }} />
+                        <Tooltip {...tipProps()} />
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="flex flex-wrap gap-3 justify-center mt-1">
@@ -1964,10 +2103,10 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                     <div className="text-xs font-bold mb-3" style={{ color: ACCENT_DARK }}>ANSTRÄNGNING ÖVER TID</div>
                     <ResponsiveContainer width="100%" height={180}>
                       <LineChart data={kanslaTrend} margin={CHART_MARGIN}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#EEEEEE" vertical={false} />
-                        <XAxis dataKey="date" padding={{ left: 12, right: 12 }} tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: "#DDDDDD" }} tickLine={false} />
+                        <CartesianGrid strokeDasharray="3 3" stroke={GRIDC} vertical={false} />
+                        <XAxis dataKey="date" padding={{ left: 12, right: 12 }} tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: AXISC }} tickLine={false} />
                         <YAxis domain={[1, 10]} ticks={[1,2,3,4,5,6,7,8,9,10]} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={26} />
-                        <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, borderColor: "#E4E4E4" }} />
+                        <Tooltip {...tipProps()} />
                         <Line type="monotone" dataKey="kansla" stroke={ACCENT} strokeWidth={2} dot={{ r: 3, fill: ACCENT }} />
                       </LineChart>
                     </ResponsiveContainer>
@@ -1975,14 +2114,14 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 </div>
 
                 <Card>
-                  <div className="text-xs font-bold mb-3" style={{ color: "#555555" }}>FÖRDELNING TRÄNINGSTYP</div>
+                  <div className="text-xs font-bold mb-3" style={{ color: LABEL }}>FÖRDELNING TRÄNINGSTYP</div>
                   <ResponsiveContainer width="100%" height={200}>
                     <BarChart data={typeDist} margin={CHART_MARGIN}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#EEEEEE" vertical={false} />
-                      <XAxis dataKey="code" tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: "#DDDDDD" }} tickLine={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={GRIDC} vertical={false} />
+                      <XAxis dataKey="code" tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: AXISC }} tickLine={false} />
                       <YAxis tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
                       <Tooltip
-                        contentStyle={{ fontSize: 12, borderRadius: 8, borderColor: "#E4E4E4" }}
+                        {...tipProps()}
                         formatter={(value, name, props) => [value, props.payload.name]}
                       />
                       <Bar dataKey="count" name="Antal pass" radius={[3, 3, 0, 0]}>
@@ -2018,7 +2157,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
           <UserManager users={users} localHidden={localHidden} onLocalHide={setLocalHiddenIds} onUpdate={updateUsers} onClose={() => setShowUsers(false)} />
         )}
 
-        <p className="text-xs text-center mt-8" style={{ color: "#B5B5B5" }}>
+        <p className="text-xs text-center mt-8" style={{ color: FAINT }}>
           Live-delad: ändringar syns direkt hos alla som har samma delningslänk.<br />Version {APP_VERSION} · {APP_DATE} ·{" "}
           <button type="button" className="underline" style={{ color: ACCENT_DARK }} onClick={() => setShowChangelog(true)}>Vad är nytt?</button>
           {protection && (<><br /><span data-testid="protection">Skydd mot överskrivning: {protection === "on" ? "på" : "begränsat"}</span></>)}
@@ -2034,7 +2173,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
             >
               Uppdatera sidan
             </button>
-            <p className="text-xs" data-testid="credit" style={{ color: "#B5B5B5", marginTop: 22 }}>© 2026 Grim • Bastubacken</p>
+            <p className="text-xs" data-testid="credit" style={{ color: FAINT, marginTop: 22 }}>© 2026 Grim • Bastubacken</p>
           </div>
         )}
       </div>
