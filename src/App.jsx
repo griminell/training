@@ -3,12 +3,16 @@ import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw } from "lucide-react";
+import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat } from "lucide-react";
 
-export const APP_VERSION = "1.5.0";
+export const APP_VERSION = "1.5.1";
 export const APP_DATE = "2026-10-19";
 
 const CHANGELOG = [
+  { version: "1.5.1", date: "2026-10-19", items: [
+    "Aktivitet och Träningstyp: de tre du använder mest syns direkt, övriga finns under Fler",
+    "Ordningen räknas på dina senaste 30 dagar och ändras bara när du öppnar appen, aldrig medan du loggar",
+    "Samma som senast: fyller i aktivitet, träningstyp och tid från ditt senaste pass (inte ansträngning, datum eller anteckningar)" ] },
   { version: "1.5.0", date: "2026-10-19", items: [
     "Säkrare sparning: om två enheter sparar samtidigt blir båda passen kvar",
     "Ej sparat: pass som inte kommer fram sparas på telefonen och skickas automatiskt när nätet är tillbaka",
@@ -323,6 +327,71 @@ function entryLine(e) {
   ].filter(Boolean).join(" · ");
 }
 
+// ---- Most used choices ("Vanligaste valen") ----
+const VISIBLE_COUNT = 3;
+const DEFAULT_SPORTS = ["F", "LÖ", "S"];
+const DEFAULT_TYPES = ["TE", "KO", "ST"];
+const NO_COUNTS = {};
+const isoDaysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+function monthsBetween(fromIso, toIso) {
+  const out = new Set();
+  for (let t = new Date(fromIso + "T00:00:00Z").getTime(), end = new Date(toIso + "T00:00:00Z").getTime(); t <= end; t += 86400000) {
+    out.add(new Date(t).toISOString().slice(0, 7));
+  }
+  return [...out];
+}
+const isRealPass = (e) => e && e.kind !== "rest" && e.kind !== "sick"; // rest/sick days arrive in 1.5.2
+// Order of all choices for one user: used in the last 30 days (most first), then the defaults, then the rest.
+function rankCodes(all, counts, defaults) {
+  const codes = all.map((x) => x.code);
+  const used = codes.filter((c) => (counts[c] || 0) > 0)
+    .sort((a, b) => (counts[b] - counts[a]) || (codes.indexOf(a) - codes.indexOf(b)));
+  const rest = defaults.filter((c) => !used.includes(c));
+  return [...used, ...rest, ...codes.filter((c) => !used.includes(c) && !rest.includes(c))];
+}
+// The three most used choices are visible, the others sit behind "Fler (n)". Selected choices are always visible.
+// `counts` is computed once when the app opens, so buttons never move while the user is logging.
+function ChoiceGroup({ items, counts, defaults, selected, color, onToggle, testId }) {
+  const [open, setOpen] = useState(false);
+  const order = useMemo(() => rankCodes(items, counts, defaults), [items, counts, defaults]);
+  const top = order.slice(0, VISIBLE_COUNT);
+  const shown = order.filter((c) => open || top.includes(c) || selected.includes(c));
+  const hidden = order.length - shown.length;
+  const label = (c) => items.find((x) => x.code === c).label;
+  return (
+    <div className="flex flex-wrap gap-2" data-testid={testId}>
+      {shown.map((c) => (
+        <Pill key={c} active={selected.includes(c)} color={color} onClick={() => onToggle(c)}>{label(c)}</Pill>
+      ))}
+      {(open || hidden > 0) && (
+        <button type="button" onClick={() => setOpen(!open)} data-testid={`${testId}-more`} aria-expanded={open}
+                className="px-3 py-2 rounded-full text-sm border flex items-center gap-1" style={{ borderColor: "#D5D5D5", color: MUTED }}>
+          {open ? "Färre" : `Fler (${hidden})`}
+          <ChevronDown size={14} style={{ transform: open ? "rotate(180deg)" : "none" }} />
+        </button>
+      )}
+    </div>
+  );
+}
+const labelOf = (arr, code) => (arr.find((x) => x.code === code) || { label: code }).label;
+
+// Latest real pass by a user, looking back over month boundaries (and at queued passes).
+async function findLastEntry(userId, monthsDesc, queuedList) {
+  let best = null;
+  const consider = (e) => {
+    if (!isRealPass(e) || (e.user || "niva") !== userId || !(e.sport || []).length) return;
+    if (!best || e.date >= best.date) best = e; // same date: the later one in the list wins
+  };
+  queuedList.forEach((a) => consider(a.entry));
+  for (const m of monthsDesc) {
+    const r = await safeGetResult(`entries:${m}`);
+    if (!r.ok) continue;
+    (r.data || []).forEach(consider);
+    if (best && best.date.slice(0, 7) >= m) break; // nothing in older months can be newer
+  }
+  return best;
+}
+
 // Confirmation dialog in the app's style (replaces the browser's confirm()).
 function ConfirmModal({ title, text, confirmLabel, busy, error, onConfirm, onCancel }) {
   return (
@@ -542,6 +611,7 @@ function Pill({ active, color, onClick, children, title }) {
       type="button"
       onClick={onClick}
       title={title}
+      aria-pressed={active}
       className="px-3 py-2 rounded-full text-sm font-semibold border transition-colors select-none"
       style={{
         borderColor: active ? color : "#D5D5D5",
@@ -587,6 +657,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const pendingRef = React.useRef(pending);
   const [editingPending, setEditingPending] = useState(null); // { qid, entryId, removeFrom } while a queued pass is loaded in the form
   const [retryingQid, setRetryingQid] = useState(null);
+  const [formEpoch, setFormEpoch] = useState(0); // bumped after a save: "Fler" groups fold back together
   const [confirmDlg, setConfirmDlg] = useState(null); // { kind: "saved" | "pending" | "disconnect", ... }
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmError, setConfirmError] = useState(null);
@@ -727,6 +798,28 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     }
   }, [statsScope, allEntries, allMonths, loadAll]);
 
+  // ---- Vanligaste valen: counted once when the app opens (never while logging) ----
+  const [usage, setUsage] = useState(null); // { userId: { sport: {code: n}, typ: {code: n} } }
+  useEffect(() => {
+    let dead = false;
+    (async () => {
+      const since = isoDaysAgo(30);
+      const results = await Promise.all(monthsBetween(since, todayISO()).map((m) => safeGetResult(`entries:${m}`)));
+      const u = {};
+      results.forEach((r) => (r.data || []).forEach((e) => {
+        if (!isRealPass(e) || e.date < since) return;
+        const slot = (u[e.user || "niva"] = u[e.user || "niva"] || { sport: {}, typ: {} });
+        (e.sport || []).forEach((c) => { slot.sport[c] = (slot.sport[c] || 0) + 1; });
+        (e.typ || []).forEach((c) => { slot.typ[c] = (slot.typ[c] || 0) + 1; });
+      }));
+      if (!dead) setUsage(u);
+    })();
+    return () => { dead = true; };
+  }, []);
+
+  // ---- Samma som senast ----
+  const [lastEntry, setLastEntry] = useState(null);
+
   // ---- Ej sparat: queue handling ----
   const mutatePending = useCallback((fn) => {
     const next = fn(pendingRef.current);
@@ -798,6 +891,22 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const queued = pending.filter((a) => a.attempts > 0); // shown as Ej sparat (in-flight saves are not shown)
   const queuedIds = useMemo(() => new Set(queued.map((a) => a.entry.id)), [pending]); // eslint-disable-line
   const maxAttempts = queued.reduce((m, a) => Math.max(m, a.attempts || 0), 0);
+
+  useEffect(() => {
+    let dead = false;
+    findLastEntry(form.user, [...allMonths].sort().reverse(), pending).then((e) => { if (!dead) setLastEntry(e); });
+    return () => { dead = true; };
+  }, [form.user, allMonths, monthEntries, pending]); // eslint-disable-line
+  const lastText = lastEntry ? [
+    (lastEntry.sport || []).map((c) => labelOf(SPORTS, c)).join(" + "),
+    (lastEntry.typ || []).map((c) => labelOf(TYPES, c)).join(" + "),
+    lastEntry.tid ? `${lastEntry.tid} min` : null,
+  ].filter(Boolean).join(" · ") : "";
+  // Effort (ansträngning), date and notes are never copied: effort is a fresh judgement of this session.
+  function applyLast() {
+    if (!lastEntry) return;
+    setForm((f) => ({ ...f, sport: [...(lastEntry.sport || [])], typ: [...(lastEntry.typ || [])], tid: lastEntry.tid || f.tid }));
+  }
 
   function toggleSport(code) {
     setForm((f) => ({
@@ -894,6 +1003,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     setEditingOriginalMonth(null);
     setEditingPending(null);
     setForm((f) => ({ ...emptyForm, user: f.user }));
+    setFormEpoch((n) => n + 1);
     setSavedFlash(left ? "queued" : "ok");
     setTimeout(() => setSavedFlash(false), left ? 3200 : 1800);
     setSaving(false);
@@ -1304,32 +1414,31 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 />
               </div>
 
+              {!editingId && !editingPending && lastText && (
+                <button type="button" onClick={applyLast} data-testid="same-as-last"
+                        className="w-full text-left rounded-lg border px-3 py-2 text-sm mb-4 flex items-start gap-2"
+                        style={{ borderColor: ACCENT, color: ACCENT_DARK }}>
+                  <Repeat size={15} className="shrink-0 mt-0.5" />
+                  <span><span className="font-bold">Samma som senast:</span> {lastText}</span>
+                </button>
+              )}
+
               <div className="mb-4">
                 <div className="text-xs font-bold mb-2" style={{ color: ACCENT_DARK }}>
                   AKTIVITET
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {SPORTS.map((s) => (
-                    <Pill key={s.code} active={form.sport.includes(s.code)} color={ACCENT}
-                          onClick={() => toggleSport(s.code)}>
-                      {s.label}
-                    </Pill>
-                  ))}
-                </div>
+                <ChoiceGroup key={`sport-${formEpoch}`} testId="sport-group" items={SPORTS} defaults={DEFAULT_SPORTS} color={ACCENT}
+                             counts={(usage && usage[form.user] && usage[form.user].sport) || NO_COUNTS}
+                             selected={form.sport} onToggle={toggleSport} />
               </div>
 
               <div className="mb-4">
                 <div className="text-xs font-bold mb-2" style={{ color: "#555555" }}>
                   TRÄNINGSTYP
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {TYPES.map((t) => (
-                    <Pill key={t.code} active={form.typ.includes(t.code)} color="#5B5B5B"
-                          onClick={() => toggleTyp(t.code)}>
-                      {t.label}
-                    </Pill>
-                  ))}
-                </div>
+                <ChoiceGroup key={`typ-${formEpoch}`} testId="typ-group" items={TYPES} defaults={DEFAULT_TYPES} color="#5B5B5B"
+                             counts={(usage && usage[form.user] && usage[form.user].typ) || NO_COUNTS}
+                             selected={form.typ} onToggle={toggleTyp} />
               </div>
 
               <div className="mb-4" style={{ maxWidth: "50%" }}>

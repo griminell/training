@@ -1,5 +1,11 @@
 # Changelog / Ändringslogg
 
+## 1.5.1 – 2026-10-19
+
+- Aktivitet och Träningstyp: de tre du använder mest syns direkt, övriga finns under Fler
+- Ordningen räknas på dina senaste 30 dagar och ändras bara när du öppnar appen, aldrig medan du loggar
+- Samma som senast: fyller i aktivitet, träningstyp och tid från ditt senaste pass (inte ansträngning, datum eller anteckningar)
+
 ## 1.5.0 – 2026-10-19
 
 - Säkrare sparning: om två enheter sparar samtidigt blir båda passen kvar

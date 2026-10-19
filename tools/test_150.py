@@ -41,7 +41,12 @@ def open_app(browser, port):
 
 def log_pass(page, sport="Fotboll", note="", minutes="30", effort="5", date=None):
     if date: page.fill("input[type=date]", date)
-    page.get_by_role("button", name=sport, exact=True).click()
+    # since 1.5.1 only the 3 most used choices are visible: open "Fler" if needed
+    btn = page.locator("[data-testid=sport-group] button[aria-pressed]", has_text=sport)
+    if btn.count() == 0:
+        page.locator("[data-testid=sport-group-more]").click()
+        btn = page.locator("[data-testid=sport-group] button[aria-pressed]", has_text=sport)
+    btn.first.click()
     page.fill("input[inputmode=numeric]", minutes)
     page.get_by_role("button", name=effort, exact=True).first.click()
     if note: page.fill("textarea", note)
