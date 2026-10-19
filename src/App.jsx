@@ -3,12 +3,18 @@ import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer } from "lucide-react";
+import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff } from "lucide-react";
 
-export const APP_VERSION = "1.5.2";
+export const APP_VERSION = "1.5.3";
 export const APP_DATE = "2026-10-19";
 
 const CHANGELOG = [
+  { version: "1.5.3", date: "2026-10-19", items: [
+    "Ny knapp Rensa bredvid Spara: tömmer det du fyllt i, men behåller datum, person och val av Pass/Vilodag/Sjukdag",
+    "Pass / Vilodag / Sjukdag ligger nu ovanför datumet, med en linje som skiljer personvalet från själva loggningen",
+    "Lite mer luft överst så att rubriken inte hamnar i iOS mjuka kant när appen ligger på hemskärmen",
+    "Loggade pass: knappen Vilo-/sjukdagar (öga) döljer eller visar vilo- och sjukdagar i listan. Valet sparas på enheten",
+    "Nya aktiviteter: Cykel och Rullskidor. Skidor, Rullskidor och Alpint ligger bredvid varandra, liksom Löpning och Promenad" ] },
   { version: "1.5.2", date: "2026-10-19", items: [
     "Vilodag och sjukdag: välj Pass, Vilodag eller Sjukdag när du loggar. Då behövs bara datum och anteckningar",
     "Vilo- och sjukdagar räknas inte som pass i statistiken, men syns i listan och i kortet Registrerade vilo-/sjukdagar",
@@ -167,7 +173,9 @@ function slugify(n) {
 function applyTheme(user) {
   const t = themeForUser(user);
   ACCENT = t.accent; ACCENT_DARK = t.dark; ACCENT_SOFT = t.soft;
-  TYPE_PALETTE = t.types; SPORT_COLORS = t.sports;
+  TYPE_PALETTE = t.types;
+  // 6 base shades + 3 more from the user's own colour, so no two activities share a colour
+  SPORT_COLORS = [...t.sports, mixHex(t.sports[0], "#FFFFFF", 0.25), mixHex(t.sports[0], "#000000", 0.2), mixHex(t.sports[0], "#FFFFFF", 0.6)];
 }
 const PAPER = "#FFFFFF";
 const INK = "#232323";
@@ -179,14 +187,20 @@ const CHART_MARGIN = { top: 4, right: 12, left: 0, bottom: 0 };
 
 
 const SPORTS = [
-  { code: "F", label: "Fotboll" },
+  // Default order (also the order under "Fler"): related activities sit together.
   { code: "S", label: "Skidor" },
-  { code: "LÖ", label: "Löpning" },
+  { code: "RU", label: "Rullskidor" },
   { code: "AL", label: "Alpint" },
-  { code: "PI", label: "Pingis" },
+  { code: "F", label: "Fotboll" },
+  { code: "LÖ", label: "Löpning" },
   { code: "PR", label: "Promenad" },
+  { code: "CY", label: "Cykel" },
+  { code: "PI", label: "Pingis" },
   { code: "A", label: "Annat" },
 ];
+// Stable colour slot per activity in the distribution chart (existing activities keep their colours).
+const SPORT_COLOR_SLOT = { F: 0, S: 1, "LÖ": 2, AL: 3, PI: 4, PR: 5, CY: 6, RU: 7, A: 8 };
+const sportColor = (code) => SPORT_COLORS[(SPORT_COLOR_SLOT[code] ?? 0) % SPORT_COLORS.length];
 
 const TYPES = [
   { code: "TE", label: "Teknik" },
@@ -296,6 +310,10 @@ const byDate = (a, b) => a.date.localeCompare(b.date);
 // latest data and replaces by id (no duplicates, nobody else's pass is overwritten).
 // Action: { qid, entry, removeFrom (month key or null), stage (0 = write entry, 1 = remove old copy), attempts, queuedAt }
 const PENDING_KEY = "nivadagbok-pending";
+const HIDE_OFFDAYS_KEY = "nivadagbok-hide-offdays"; // per device: hide rest/sick days in the list of logged passes
+function getHideOffDays() {
+  try { return localStorage.getItem(HIDE_OFFDAYS_KEY) === "1"; } catch (e) { return false; }
+}
 function loadPending() {
   try {
     const a = JSON.parse(localStorage.getItem(PENDING_KEY));
@@ -352,12 +370,16 @@ function monthsBetween(fromIso, toIso) {
 const isRealPass = (e) => e && e.kind !== "rest" && e.kind !== "sick";
 const isOffDay = (e) => e && (e.kind === "rest" || e.kind === "sick");
 // Order of all choices for one user: used in the last 30 days (most first), then the defaults, then the rest.
+// The default order of the list always applies; "most used" overrules it: the most used choices (last 30 days) move to
+// the front. The visible VISIBLE_COUNT are topped up with the default choices, in default order. Everything else keeps
+// the default order (so related choices, e.g. Skidor / Rullskidor / Alpint, stay next to each other under "Fler").
 function rankCodes(all, counts, defaults) {
   const codes = all.map((x) => x.code);
   const used = codes.filter((c) => (counts[c] || 0) > 0)
     .sort((a, b) => (counts[b] - counts[a]) || (codes.indexOf(a) - codes.indexOf(b)));
-  const rest = defaults.filter((c) => !used.includes(c));
-  return [...used, ...rest, ...codes.filter((c) => !used.includes(c) && !rest.includes(c))];
+  const topUp = codes.filter((c) => defaults.includes(c) && !used.includes(c));
+  const head = [...used, ...topUp, ...codes].filter((c, i, a) => a.indexOf(c) === i).slice(0, VISIBLE_COUNT);
+  return [...head, ...codes.filter((c) => !head.includes(c))];
 }
 // The three most used choices are visible, the others sit behind "Fler (n)". Selected choices are always visible.
 // `counts` is computed once when the app opens, so buttons never move while the user is logging.
@@ -672,6 +694,12 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmError, setConfirmError] = useState(null);
   const [saveError, setSaveError] = useState(null);
+  const [hideOffDays, setHideOffDays] = useState(getHideOffDays);
+  function toggleHideOffDays() {
+    const next = !hideOffDays;
+    setHideOffDays(next);
+    try { localStorage.setItem(HIDE_OFFDAYS_KEY, next ? "1" : "0"); } catch (e) {}
+  }
   const [protection, setProtection] = useState(null); // null | "on" | "limited"
 
   const emptyForm = {
@@ -1007,6 +1035,13 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     return !!(r.ok && (r.data || []).some(same));
   }
   const isOff = form.kind === "rest" || form.kind === "sick";
+  const formDirty = form.sport.length > 0 || form.typ.length > 0 || !!form.tid || !!form.kansla || form.anteckningar.trim() !== "";
+  // "Rensa": empties what was filled in. Date, user and Pass/Vilodag/Sjukdag stay (handy when logging several days in a row).
+  function clearForm() {
+    setForm((f) => ({ ...emptyForm, user: f.user, date: f.date, kind: f.kind }));
+    setSaveError(null);
+    setFormEpoch((n) => n + 1); // "Fler" groups fold back together
+  }
   useEffect(() => { setSaveError(null); }, [form.date, form.kind, form.user]);
 
   async function handleSave() {
@@ -1283,7 +1318,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const sportDist = useMemo(() => {
     const counts = { F: 0, S: 0, A: 0 };
     dataForStats.forEach((e) => (e.sport || []).forEach((s) => { counts[s] = (counts[s] || 0) + 1; }));
-    return SPORTS.map((s) => ({ name: s.label, value: counts[s.code] || 0 }));
+    return SPORTS.map((s) => ({ code: s.code, name: s.label, value: counts[s.code] || 0 }));
   }, [dataForStats]);
 
   const typeDist = useMemo(() => {
@@ -1328,11 +1363,15 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     </Card>
   );
 
+  // Rest/sick days can be hidden in the list (only the list: statistics are not affected). Queued ones stay visible.
+  const offDaysInList = sortedMonthEntries.filter(isOffDay).length;
+  const listEntries = hideOffDays ? sortedMonthEntries.filter((e) => !isOffDay(e)) : sortedMonthEntries;
+
   const canSave = form.date && (isOff || form.sport.length > 0) && !saving;
 
   return (
     <div className="w-full" style={{ backgroundColor: PAPER, color: INK }}>
-      <div className="max-w-3xl mx-auto px-4 pt-4 pb-2" style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingLeft: "max(1rem, env(safe-area-inset-left))", paddingRight: "max(1rem, env(safe-area-inset-right))" }}>
+      <div className="max-w-3xl mx-auto px-4 pt-4 pb-2" style={{ paddingTop: "max(1rem, calc(env(safe-area-inset-top) + 0.75rem))", paddingLeft: "max(1rem, env(safe-area-inset-left))", paddingRight: "max(1rem, env(safe-area-inset-right))" }}>
         {/* Header */}
         <div className="flex items-start justify-between gap-2 mb-1">
           <h1 className="text-3xl font-bold tracking-tight min-w-0" style={{ color: INK }}>
@@ -1464,32 +1503,33 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-3 mb-4">
-                <div className="flex items-center gap-2">
-                  <CalendarDays size={18} style={{ color: ACCENT }} />
-                  <input
-                    type="date"
-                    value={form.date}
-                    onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-                    className="border rounded-lg px-3 py-2 text-sm"
-                    style={{ borderColor: "#D5D5D5" }}
-                  />
-                </div>
-                {/* Pass / Vilodag / Sjukdag: sits next to the date if it fits, otherwise right below it */}
-                <div role="group" aria-label="Typ" data-testid="kind-group" className="flex flex-1 rounded-lg border overflow-hidden"
-                     style={{ minWidth: 220, borderColor: "#D5D5D5" }}>
-                  {["pass", "rest", "sick"].map((k, i) => {
-                    const on = form.kind === k;
-                    return (
-                      <button key={k} type="button" data-testid={`kind-${k}`} aria-pressed={on}
-                              onClick={() => setForm((f) => ({ ...f, kind: k }))}
-                              className="flex-1 py-2 text-sm font-semibold"
-                              style={{ backgroundColor: on ? ACCENT : "white", color: on ? "white" : "#444444", borderLeft: i ? "1px solid #D5D5D5" : "none" }}>
-                        {kindLabel(k)}
-                      </button>
-                    );
-                  })}
-                </div>
+              <div className="border-t mb-4" data-testid="user-divider" style={{ borderColor: "#E4E4E4" }} />
+
+              {/* What is logged (Pass / Vilodag / Sjukdag) comes before the date, so the date is not forgotten when logging several days */}
+              <div role="group" aria-label="Typ" data-testid="kind-group" className="flex w-full rounded-lg border overflow-hidden mb-4"
+                   style={{ borderColor: "#D5D5D5" }}>
+                {["pass", "rest", "sick"].map((k, i) => {
+                  const on = form.kind === k;
+                  return (
+                    <button key={k} type="button" data-testid={`kind-${k}`} aria-pressed={on}
+                            onClick={() => setForm((f) => ({ ...f, kind: k }))}
+                            className="flex-1 py-2 text-sm font-semibold"
+                            style={{ backgroundColor: on ? ACCENT : "white", color: on ? "white" : "#444444", borderLeft: i ? "1px solid #D5D5D5" : "none" }}>
+                      {kindLabel(k)}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-2 mb-4">
+                <CalendarDays size={18} style={{ color: ACCENT }} />
+                <input
+                  type="date"
+                  value={form.date}
+                  onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+                  className="border rounded-lg px-3 py-2 text-sm"
+                  style={{ borderColor: "#D5D5D5" }}
+                />
               </div>
 
               {!isOff && !editingId && !editingPending && lastText && (
@@ -1574,10 +1614,11 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 />
               </div>
 
+              <div className="flex gap-2">
               <button
                 onClick={handleSave}
                 disabled={!canSave}
-                className="w-full py-2.5 rounded-lg text-sm font-bold text-white transition-opacity flex items-center justify-center gap-2"
+                className="flex-1 py-2.5 rounded-lg text-sm font-bold text-white transition-opacity flex items-center justify-center gap-2"
                 style={{ backgroundColor: ACCENT, opacity: canSave ? 1 : 0.45 }}
               >
                 {saving ? (<><Loader2 size={16} className="animate-spin" /> Sparar…</>)
@@ -1586,6 +1627,15 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                   : (editingId || editingPending) ? "Spara ändringar"
                   : form.kind === "rest" ? "Spara vilodag" : form.kind === "sick" ? "Spara sjukdag" : "Spara pass"}
               </button>
+              {/* Small outline button, no fill. Editing: it cancels the edit. Otherwise: empties what was filled in (date, user and kind stay). */}
+              <button type="button" data-testid="clear-form"
+                      onClick={(editingId || editingPending) ? cancelEdit : clearForm}
+                      disabled={!(editingId || editingPending) && !formDirty}
+                      className="px-4 py-2.5 rounded-lg text-sm font-semibold border bg-transparent transition-opacity"
+                      style={{ borderColor: ACCENT, color: ACCENT_DARK, opacity: (editingId || editingPending || formDirty) ? 1 : 0.45 }}>
+                {(editingId || editingPending) ? "Avbryt" : "Rensa"}
+              </button>
+              </div>
               {saveError && (
                 <p className="text-sm mt-2" role="alert" data-testid="save-error" style={{ color: "#B00020" }}>{saveError}</p>
               )}
@@ -1597,7 +1647,8 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
             </Card>
 
             <div>
-              <div className="text-xs font-bold mb-2" style={{ color: MUTED }}>
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-2">
+              <div className="text-xs font-bold" style={{ color: MUTED }}>
                 LOGGADE PASS · {userName(form.user)} ·{" "}
                 <span className="relative inline-block">
                   {monthLabel(selectedMonth)}
@@ -1614,6 +1665,16 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                     ))}
                   </select>
                 </span>
+              </div>
+              {offDaysInList > 0 && (
+                <button type="button" onClick={toggleHideOffDays} data-testid="toggle-offdays" aria-pressed={hideOffDays}
+                        title={hideOffDays ? "Visa vilo- och sjukdagar" : "Dölj vilo- och sjukdagar"}
+                        className="ml-auto flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold border bg-transparent"
+                        style={{ borderColor: "#D5D5D5", color: hideOffDays ? "#B5B5B5" : MUTED }}>
+                  {hideOffDays ? <EyeOff size={14} /> : <Eye size={14} />}
+                  Vilo-/sjukdagar ({offDaysInList})
+                </button>
+              )}
               </div>
               {queued.length > 0 && (
                 <div className="space-y-2 mb-3">
@@ -1657,11 +1718,15 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
               )}
               {loadingMonth ? (
                 <p className="text-sm" style={{ color: MUTED }}>Laddar…</p>
-              ) : sortedMonthEntries.length === 0 ? (
-                <p className="text-sm" style={{ color: MUTED }}>Inga pass loggade den här månaden ännu.</p>
+              ) : listEntries.length === 0 ? (
+                <p className="text-sm" style={{ color: MUTED }} data-testid="empty-list">
+                  {sortedMonthEntries.length === 0
+                    ? "Inga pass loggade den här månaden ännu."
+                    : `Inga pass den här månaden. ${offDaysInList === 1 ? "1 vilo-/sjukdag är dold" : `${offDaysInList} vilo-/sjukdagar är dolda`}.`}
+                </p>
               ) : (
                 <div className="space-y-2">
-                  {sortedMonthEntries.map((e) => {
+                  {listEntries.map((e) => {
                     const isExpanded = expandedIds.has(e.id);
                     const hasNote = e.anteckningar && e.anteckningar.trim().length > 0;
                     const preview = hasNote && e.anteckningar.length > 42
@@ -1845,7 +1910,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                       <PieChart>
                         <Pie data={sportDist} dataKey="value" nameKey="name" innerRadius={40} outerRadius={70} paddingAngle={2}>
                           {sportDist.map((entry, i) => (
-                            <Cell key={entry.name} fill={SPORT_COLORS[i % SPORT_COLORS.length]} />
+                            <Cell key={entry.name} fill={sportColor(entry.code)} />
                           ))}
                         </Pie>
                         <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, borderColor: "#E4E4E4" }} />
@@ -1854,7 +1919,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                     <div className="flex flex-wrap gap-3 justify-center mt-1">
                       {sportDist.map((s, i) => (
                         <div key={s.name} className="flex items-center gap-1.5 text-xs" style={{ color: MUTED }}>
-                          <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: SPORT_COLORS[i % SPORT_COLORS.length] }} />
+                          <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: sportColor(s.code) }} />
                           {s.name} ({s.value})
                         </div>
                       ))}

@@ -1,13 +1,19 @@
 """Acceptance tests for 1.5.1 (run: python3 tools/test_151.py [path/to/index.html]).
 Covers "Vanligaste valen + Fler" and "Samma som senast". Mobile viewport 390x844.
 The seed is generated relative to today, so the tests do not age."""
-import sys, os, json, subprocess, time, urllib.request, pathlib, tempfile, datetime
+import re, sys, os, json, subprocess, time, urllib.request, pathlib, tempfile, datetime
 from playwright.sync_api import sync_playwright
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HTML = sys.argv[1] if len(sys.argv) > 1 else str(ROOT / "index.html")
 SHOTS = pathlib.Path(os.environ.get("SHOTS", "/tmp/shots_151")); SHOTS.mkdir(exist_ok=True, parents=True)
 results = []
+# The page is served over http: with file:// headless Chromium sometimes forgets localStorage on reload (test harness flake, not the app).
+HTTP_PORT = 8751
+srv = subprocess.Popen([sys.executable, "-m", "http.server", str(HTTP_PORT), "--bind", "127.0.0.1", "--directory", str(pathlib.Path(HTML).resolve().parent)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+import atexit; atexit.register(srv.terminate)
+time.sleep(0.8)
 
 def check(name, cond, extra=""):
     results.append((name, bool(cond)))
@@ -54,7 +60,7 @@ def open_app(browser, port, me="niva"):
     page = ctx.new_page(); page.errors = []
     page.on("pageerror", lambda e: page.errors.append(str(e)))
     page.add_init_script(f"try {{ localStorage.setItem('nivadagbok-me', '{me}') }} catch (e) {{}}")
-    page.goto(f"file://{HTML}#db=http://localhost:{port}&code=testcode12345")
+    page.goto(f"http://127.0.0.1:{HTTP_PORT}/{pathlib.Path(HTML).name}#db=http://localhost:{port}&code=testcode12345")
     page.wait_for_selector("button:has-text('Spara pass')")
     page.wait_for_timeout(700)  # usage counted once at open
     return ctx, page
@@ -66,6 +72,7 @@ def reload_ready(page):
     except Exception:
         print("DIAG reload failed. errors:", page.errors, "url:", page.url)
         print("DIAG body:", page.evaluate("document.body.innerText")[:400].replace("\n", " | "))
+        print("DIAG localStorage keys:", page.evaluate("(() => { try { return Object.keys(localStorage) } catch (e) { return 'ERR ' + e } })()"))
         page.screenshot(path=str(SHOTS / "diag_reload.png"))
         raise
     page.wait_for_timeout(900)
@@ -79,10 +86,10 @@ def more(page, group):
     return loc.inner_text() if loc.count() else None
 
 def pick(page, group, label):
-    btn = page.locator(f"[data-testid={group}] button[aria-pressed]", has_text=label)
+    btn = page.locator(f"[data-testid={group}] button[aria-pressed]", has_text=re.compile(f"^{label}$"))
     if btn.count() == 0:
         page.locator(f"[data-testid={group}-more]").click()
-        btn = page.locator(f"[data-testid={group}] button[aria-pressed]", has_text=label)
+        btn = page.locator(f"[data-testid={group}] button[aria-pressed]", has_text=re.compile(f"^{label}$"))
     btn.first.click()
 
 seed = build_seed()
@@ -93,36 +100,36 @@ with sync_playwright() as pw:
         ctx, P = open_app(browser, port, "niva")
 
         # 1. Most used, last 30 days only, per user
-        check("1 Niva sports: 3 most used first (older passes ignored)", pills(P, "sport-group") == ["Löpning", "Promenad", "Fotboll"], str(pills(P, "sport-group")))
-        check("1 Niva sports: 'Fler (4)'", more(P, "sport-group") == "Fler (4)", str(more(P, "sport-group")))
+        check("1 Niva sports: 3 most used first (older passes ignored)", pills(P, "sport-group") == ["Löpning", "Promenad", "Skidor"], str(pills(P, "sport-group")))
+        check("1 Niva sports: 'Fler (6)'", more(P, "sport-group") == "Fler (6)", str(more(P, "sport-group")))
         check("1 Niva types: Styrka, Intervall, Teknik", pills(P, "typ-group") == ["Styrka", "Intervall", "Teknik"], str(pills(P, "typ-group")))
         check("1 Niva types: 'Fler (7)'", more(P, "typ-group") == "Fler (7)", str(more(P, "typ-group")))
         P.screenshot(path=str(SHOTS / "1_niva_forst.png"), full_page=True)
 
         # 2. Fler / Färre, selected hidden choice stays visible
         P.locator("[data-testid=sport-group-more]").click()
-        check("2 Fler shows all 7 sports + Färre", len(pills(P, "sport-group")) == 7 and more(P, "sport-group") == "Färre", str(pills(P, "sport-group")))
+        check("2 Fler shows all 9 sports + Färre", len(pills(P, "sport-group")) == 9 and more(P, "sport-group") == "Färre", str(pills(P, "sport-group")))
         P.screenshot(path=str(SHOTS / "2_fler_utfallt.png"), full_page=True)
-        P.locator("[data-testid=sport-group] button[aria-pressed]", has_text="Skidor").click()
+        P.locator("[data-testid=sport-group] button[aria-pressed]", has_text=re.compile("^Alpint$")).click()
         P.locator("[data-testid=sport-group-more]").click()   # Färre
-        check("2 Selected hidden choice (Skidor) stays visible after Färre", pills(P, "sport-group") == ["Löpning", "Promenad", "Fotboll", "Skidor"] and pressed(P, "sport-group") == ["Skidor"], str(pills(P, "sport-group")))
-        check("2 'Fler (3)' counts only the still hidden", more(P, "sport-group") == "Fler (3)", str(more(P, "sport-group")))
-        P.locator("[data-testid=sport-group] button[aria-pressed]", has_text="Skidor").click()  # deselect again
-        check("2 Deselected: back to the top 3", pills(P, "sport-group") == ["Löpning", "Promenad", "Fotboll"])
+        check("2 Selected hidden choice (Alpint) stays visible after Färre", pills(P, "sport-group") == ["Löpning", "Promenad", "Skidor", "Alpint"] and pressed(P, "sport-group") == ["Alpint"], str(pills(P, "sport-group")))
+        check("2 'Fler (5)' counts only the still hidden", more(P, "sport-group") == "Fler (5)", str(more(P, "sport-group")))
+        P.locator("[data-testid=sport-group] button[aria-pressed]", has_text=re.compile("^Alpint$")).click()  # deselect again
+        check("2 Deselected: back to the top 3", pills(P, "sport-group") == ["Löpning", "Promenad", "Skidor"])
 
         # 3. Order does not change while logging; recalculated when the app is opened again
         for k in range(2):
             pick(P, "sport-group", "Pingis")
             P.fill("input[inputmode=numeric]", "20"); P.get_by_role("button", name="3", exact=True).first.click()
             P.get_by_role("button", name="Spara pass").click(); P.wait_for_timeout(1200)
-            check(f"3 After saving Pingis pass #{k + 1}: order unchanged", pills(P, "sport-group") == ["Löpning", "Promenad", "Fotboll"], str(pills(P, "sport-group")))
+            check(f"3 After saving Pingis pass #{k + 1}: order unchanged", pills(P, "sport-group") == ["Löpning", "Promenad", "Skidor"], str(pills(P, "sport-group")))
         reload_ready(P)
-        check("3 After reopening: recalculated (Pingis now in top 3)", pills(P, "sport-group") == ["Löpning", "Pingis", "Promenad"], str(pills(P, "sport-group")))
+        check("3 After reopening: recalculated (Pingis now in top 3; ties follow the default order)", pills(P, "sport-group") == ["Löpning", "Promenad", "Pingis"], str(pills(P, "sport-group")))
         ctx.close()
 
         # 4. New user without recent history gets the defaults; look-back over month boundaries
         ctx, G = open_app(browser, port, "grim")
-        check("4 Grim sports: defaults", pills(G, "sport-group") == ["Fotboll", "Löpning", "Skidor"], str(pills(G, "sport-group")))
+        check("4 Grim sports: defaults", pills(G, "sport-group") == ["Skidor", "Fotboll", "Löpning"], str(pills(G, "sport-group")))
         check("4 Grim types: defaults", pills(G, "typ-group") == ["Teknik", "Kondition", "Styrka"], str(pills(G, "typ-group")))
         txt = G.locator("[data-testid=same-as-last]").inner_text() if G.locator("[data-testid=same-as-last]").count() else ""
         check("4 Samma som senast looks back over months (75 days)", txt == "Samma som senast: Skidor · Intervall · 90 min", txt)

@@ -69,7 +69,7 @@ def open_app(browser, port, me="niva", accept_downloads=False):
     return ctx, page
 
 def set_kind(page, k): page.locator(f"[data-testid=kind-{k}]").click()
-def save_btn(page): return page.locator("button.w-full", has_text=re.compile("^(Spara|Sparar|Sparat|Ej sparat)")).first
+def save_btn(page): return page.locator("button.flex-1", has_text=re.compile("^(Spara|Sparar|Sparat|Ej sparat)")).first
 def pressed(page, k): return page.locator(f"[data-testid=kind-{k}]").get_attribute("aria-pressed") == "true"
 def digits(t): return int(re.sub(r"\D", "", t) or 0)
 def rows(page, kind): return page.locator(f"[data-testid={kind}]")
@@ -79,7 +79,7 @@ def stat_user(page, name):
     page.locator("button[aria-pressed]", has_text=name).first.click() if page.locator("button[aria-pressed]", has_text=name).count() else page.get_by_role("button", name=name, exact=True).first.click()
     page.wait_for_timeout(400)
 def stat_card(page, label):
-    c = page.locator("div.rounded-xl, div.rounded-lg", has_text=label).filter(has=page.locator(f"text={label}")).last
+    c = page.locator("div.rounded-xl, div.rounded-lg", has_text=re.compile(f"^{label}$")).filter(has=page.locator(f"text={label}")).last
     return c.inner_text() if c.count() else ""
 def norm(es):
     return sorted((e["date"], e.get("user"), e.get("kind") or "", " ".join(e.get("sport") or []), " ".join(e.get("typ") or []), str(e.get("tid") or ""), str(e.get("kansla") or ""), e.get("anteckningar") or "") for e in es)
@@ -179,7 +179,7 @@ with sync_playwright() as pw:
         # ---- 6. 'Samma som senast' and 'Vanligaste valen' ignore rest/sick ----
         ctxG, G = open_app(browser, port, "grim")
         s_pills = G.locator("[data-testid=sport-group] button[aria-pressed]").all_inner_texts()
-        check("6 Grim (only rest days with sport A): defaults, no 'Samma som senast'", s_pills == ["Fotboll", "Löpning", "Skidor"] and G.locator("[data-testid=same-as-last]").count() == 0, str(s_pills))
+        check("6 Grim (only rest days with sport A): defaults, no 'Samma som senast'", s_pills == ["Skidor", "Fotboll", "Löpning"] and G.locator("[data-testid=same-as-last]").count() == 0, str(s_pills))
         ctxG.close()
         ctx2, N = open_app(browser, port, "niva")
         txt = N.locator("[data-testid=same-as-last]").inner_text()

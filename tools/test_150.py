@@ -1,6 +1,6 @@
 """Acceptance tests for 1.5.0 (run: python3 tools/test_150.py [path/to/index.html]).
 Starts its own mock Firebase servers. Mobile viewport 390x844, two browser contexts = two phones."""
-import sys, os, json, subprocess, time, urllib.request, pathlib
+import re, sys, os, json, subprocess, time, urllib.request, pathlib
 from playwright.sync_api import sync_playwright
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -42,10 +42,10 @@ def open_app(browser, port):
 def log_pass(page, sport="Fotboll", note="", minutes="30", effort="5", date=None):
     if date: page.fill("input[type=date]", date)
     # since 1.5.1 only the 3 most used choices are visible: open "Fler" if needed
-    btn = page.locator("[data-testid=sport-group] button[aria-pressed]", has_text=sport)
+    btn = page.locator("[data-testid=sport-group] button[aria-pressed]", has_text=re.compile(f"^{sport}$"))
     if btn.count() == 0:
         page.locator("[data-testid=sport-group-more]").click()
-        btn = page.locator("[data-testid=sport-group] button[aria-pressed]", has_text=sport)
+        btn = page.locator("[data-testid=sport-group] button[aria-pressed]", has_text=re.compile(f"^{sport}$"))
     btn.first.click()
     page.fill("input[inputmode=numeric]", minutes)
     page.get_by_role("button", name=effort, exact=True).first.click()

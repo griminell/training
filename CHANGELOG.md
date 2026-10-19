@@ -1,5 +1,13 @@
 # Changelog / Ändringslogg
 
+## 1.5.3 – 2026-10-19
+
+- Ny knapp Rensa bredvid Spara: tömmer det du fyllt i, men behåller datum, person och val av Pass/Vilodag/Sjukdag
+- Pass / Vilodag / Sjukdag ligger nu ovanför datumet, med en linje som skiljer personvalet från själva loggningen
+- Lite mer luft överst så att rubriken inte hamnar i iOS mjuka kant när appen ligger på hemskärmen
+- Loggade pass: knappen Vilo-/sjukdagar (öga) döljer eller visar vilo- och sjukdagar i listan. Valet sparas på enheten
+- Nya aktiviteter: Cykel och Rullskidor. Skidor, Rullskidor och Alpint ligger bredvid varandra, liksom Löpning och Promenad
+
 ## 1.5.2 – 2026-10-19
 
 - Vilodag och sjukdag: välj Pass, Vilodag eller Sjukdag när du loggar. Då behövs bara datum och anteckningar
