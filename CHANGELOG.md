@@ -1,5 +1,13 @@
 # Changelog / Ändringslogg
 
+## 1.5.2 – 2026-10-19
+
+- Vilodag och sjukdag: välj Pass, Vilodag eller Sjukdag när du loggar. Då behövs bara datum och anteckningar
+- Vilo- och sjukdagar räknas inte som pass i statistiken, men syns i listan och i kortet Registrerade vilo-/sjukdagar
+- Max en vilo- eller sjukdag per person och dag. Ett pass kan ligga på samma dag
+- Ansträngningen syns nu i listan över loggade pass, t.ex. 6/10
+- CSV har en ny kolumn Typ (Pass, Vilodag, Sjukdag). Äldre filer går fortfarande att importera
+
 ## 1.5.1 – 2026-10-19
 
 - Aktivitet och Träningstyp: de tre du använder mest syns direkt, övriga finns under Fler

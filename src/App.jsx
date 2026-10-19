@@ -3,12 +3,18 @@ import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat } from "lucide-react";
+import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer } from "lucide-react";
 
-export const APP_VERSION = "1.5.1";
+export const APP_VERSION = "1.5.2";
 export const APP_DATE = "2026-10-19";
 
 const CHANGELOG = [
+  { version: "1.5.2", date: "2026-10-19", items: [
+    "Vilodag och sjukdag: välj Pass, Vilodag eller Sjukdag när du loggar. Då behövs bara datum och anteckningar",
+    "Vilo- och sjukdagar räknas inte som pass i statistiken, men syns i listan och i kortet Registrerade vilo-/sjukdagar",
+    "Max en vilo- eller sjukdag per person och dag. Ett pass kan ligga på samma dag",
+    "Ansträngningen syns nu i listan över loggade pass, t.ex. 6/10",
+    "CSV har en ny kolumn Typ (Pass, Vilodag, Sjukdag). Äldre filer går fortfarande att importera" ] },
   { version: "1.5.1", date: "2026-10-19", items: [
     "Aktivitet och Träningstyp: de tre du använder mest syns direkt, övriga finns under Fler",
     "Ordningen räknas på dina senaste 30 dagar och ändras bara när du öppnar appen, aldrig medan du loggar",
@@ -317,7 +323,10 @@ async function runAction(a, onStage) {
   }
   return { status: "ok" };
 }
+// kind: missing = normal pass, "rest" = rest day, "sick" = sick day
+const kindLabel = (k) => (k === "rest" ? "Vilodag" : k === "sick" ? "Sjukdag" : "Pass");
 function entryLine(e) {
+  if (e.kind === "rest" || e.kind === "sick") return `${e.date.slice(8)}/${e.date.slice(5, 7)} · ${kindLabel(e.kind)}`;
   return [
     `${e.date.slice(8)}/${e.date.slice(5, 7)}`,
     (e.sport || []).join(" "),
@@ -340,7 +349,8 @@ function monthsBetween(fromIso, toIso) {
   }
   return [...out];
 }
-const isRealPass = (e) => e && e.kind !== "rest" && e.kind !== "sick"; // rest/sick days arrive in 1.5.2
+const isRealPass = (e) => e && e.kind !== "rest" && e.kind !== "sick";
+const isOffDay = (e) => e && (e.kind === "rest" || e.kind === "sick");
 // Order of all choices for one user: used in the last 30 days (most first), then the defaults, then the rest.
 function rankCodes(all, counts, defaults) {
   const codes = all.map((x) => x.code);
@@ -661,6 +671,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const [confirmDlg, setConfirmDlg] = useState(null); // { kind: "saved" | "pending" | "disconnect", ... }
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmError, setConfirmError] = useState(null);
+  const [saveError, setSaveError] = useState(null);
   const [protection, setProtection] = useState(null); // null | "on" | "limited"
 
   const emptyForm = {
@@ -671,6 +682,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     tid: "",
     kansla: "",
     anteckningar: "",
+    kind: "pass", // form only: "pass" | "rest" | "sick" (a normal pass is stored without kind)
   };
   const [form, setForm] = useState(emptyForm);
   const [statsUser, setStatsUser] = useState(getMe());
@@ -941,6 +953,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       tid: entry.tid || "",
       kansla: entry.kansla || "",
       anteckningar: entry.anteckningar || "",
+      kind: isOffDay(entry) ? entry.kind : "pass",
     });
     if (typeof window !== "undefined" && window.scrollTo) {
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -960,6 +973,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       tid: a.entry.tid || "",
       kansla: a.entry.kansla || "",
       anteckningar: a.entry.anteckningar || "",
+      kind: isOffDay(a.entry) ? a.entry.kind : "pass",
     });
     if (typeof window !== "undefined" && window.scrollTo) {
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -975,13 +989,39 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
 
   // Saving always goes: put the pass in the queue first (so it survives a closed app or a dropped
   // connection), then try to send it. If it got through it leaves the queue; otherwise it stays as "Ej sparat".
+  // The entry that gets stored. A normal pass has no `kind`; a rest/sick day only keeps date, user and notes.
+  function buildEntry(id) {
+    const { kind, ...rest } = form;
+    if (kind === "rest" || kind === "sick") {
+      return { id, date: form.date, user: form.user, kind, sport: [], typ: [], tid: "", kansla: "", anteckningar: form.anteckningar, cr10: true };
+    }
+    return { id, ...rest, cr10: true };
+  }
+  // At most one rest/sick day per user and date. Checks the queue and the saved month (if it can be read).
+  async function offDayTaken(ignoreId) {
+    const same = (e) => isOffDay(e) && (e.user || "niva") === form.user && e.date === form.date && e.id !== ignoreId;
+    if (pendingRef.current.some((a) => same(a.entry))) return true;
+    const mk = monthKeyOf(form.date);
+    if (mk === selectedMonthRef.current && monthEntries.some(same)) return true;
+    const r = await safeGetResult(`entries:${mk}`);
+    return !!(r.ok && (r.data || []).some(same));
+  }
+  const isOff = form.kind === "rest" || form.kind === "sick";
+  useEffect(() => { setSaveError(null); }, [form.date, form.kind, form.user]);
+
   async function handleSave() {
-    if (!form.date || form.sport.length === 0 || saving) return;
+    if (!form.date || (!isOff && form.sport.length === 0) || saving) return;
+    setSaveError(null);
     setSaving(true);
+    if (isOff && (await offDayTaken(editingPending ? editingPending.entryId : editingId))) {
+      setSaveError(`Du har redan en vilodag eller sjukdag den dagen.`);
+      setSaving(false);
+      return;
+    }
     let qid;
     if (editingPending) {
       qid = editingPending.qid;
-      const entry = { id: editingPending.entryId, ...form, cr10: true };
+      const entry = buildEntry(editingPending.entryId);
       if (pendingRef.current.some((a) => a.qid === qid)) {
         mutatePending((l) => l.map((a) => (a.qid === qid ? { ...a, entry, stage: 0 } : a)));
       } else {
@@ -991,7 +1031,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       }
     } else {
       const id = editingId || uid();
-      const entry = { id, ...form, cr10: true };
+      const entry = buildEntry(id);
       const removeFrom = editingId && editingOriginalMonth && editingOriginalMonth !== monthKeyOf(form.date) ? editingOriginalMonth : null;
       qid = "q" + uid();
       mutatePending((l) => [...l, { qid, entry, removeFrom, stage: 0, attempts: 0, queuedAt: Date.now() }]);
@@ -1066,7 +1106,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       results.forEach((r) => { if (r.data) merged.push(...r.data); });
       merged.sort((a, b) => a.date.localeCompare(b.date));
 
-      const header = ["Datum", "Anvandare", "Sport", "Traningstyp", "Tid (min)", "Anstrangning (1-10)", "Anteckningar"];
+      const header = ["Datum", "Anvandare", "Sport", "Traningstyp", "Tid (min)", "Anstrangning (1-10)", "Anteckningar", "Typ"];
       const rows = merged.map((e) => [
         e.date,
         userName(e.user || "niva"),
@@ -1075,6 +1115,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         e.tid || "",
         e.kansla || "",
         e.anteckningar || "",
+        kindLabel(e.kind),
       ]);
       const csv = [header, ...rows]
         .map((row) => row.map(csvEscape).join(";"))
@@ -1148,6 +1189,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         tid: header.indexOf("tid (min)"),
         kansla: header.findIndex((h) => h.startsWith("anstrangning") || h.startsWith("kansla")),
         anteckningar: header.indexOf("anteckningar"),
+        kind: header.indexOf("typ"), // optional, last column since 1.5.2; missing = Pass
       };
       if (idx.date === -1) {
         setImportMsg({ ok: false, text: "Hittar ingen 'Datum'-kolumn i filen." });
@@ -1167,8 +1209,11 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         const r = rows[i];
         const date = (r[idx.date] || "").trim();
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+        const kindText = idx.kind > -1 ? (r[idx.kind] || "").trim().toLowerCase() : "";
+        const kind = kindText === "vilodag" ? "rest" : kindText === "sjukdag" ? "sick" : null;
         const entry = {
           id: uid(),
+          ...(kind ? { kind } : {}),
           date,
           user: idx.user > -1 ? userLabelToCode(r[idx.user] || "Niva") : "niva",
           sport: idx.sport > -1 ? (r[idx.sport] || "").split(" ").filter(Boolean) : [],
@@ -1187,7 +1232,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       let failedMonths = 0;
       const monthKeys = Object.keys(byMonth);
       for (const mk of monthKeys) {
-        const sig = (e) => [e.date, e.user, (e.sport||[]).join(","), (e.typ||[]).join(","), e.tid, e.kansla, e.anteckningar].join("|");
+        const sig = (e) => [e.date, e.user, (e.sport||[]).join(","), (e.typ||[]).join(","), e.tid, e.kansla, e.anteckningar, e.kind || ""].join("|");
         // the merge runs on the latest data of that month (see saveKey), so nothing saved meanwhile is overwritten
         const r = await saveMonth(mk, (existing) => {
           const existingSigs = new Set(existing.map(sig));
@@ -1211,10 +1256,17 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     setImporting(false);
   }
 
-  const dataForStats = useMemo(() => {
+  // All entries of the chosen user and period, including rest/sick days.
+  const statsBase = useMemo(() => {
     const base = statsScope === "all" ? (allEntries || []) : monthEntries;
     return base.filter((e) => (e.user || "niva") === statsUser);
   }, [statsScope, allEntries, monthEntries, statsUser]);
+  // Rest/sick days never count as passes: everything below uses real passes only.
+  const dataForStats = useMemo(() => statsBase.filter(isRealPass), [statsBase]);
+  const offDayCounts = useMemo(() => ({
+    rest: statsBase.filter((e) => e.kind === "rest").length,
+    sick: statsBase.filter((e) => e.kind === "sick").length,
+  }), [statsBase]);
 
   const loadByDate = useMemo(() => {
     const map = {};
@@ -1267,7 +1319,16 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     [monthEntries, form.user, queuedIds]
   );
 
-  const canSave = form.date && form.sport.length > 0 && !saving;
+  const offDayCard = (
+    <Card>
+      <div className="text-xs font-bold mb-1" style={{ color: ACCENT_DARK }}>REGISTRERADE VILO-/SJUKDAGAR</div>
+      <div className="text-sm" data-testid="offday-stats" style={{ color: INK }}>
+        Vilodagar <span className="font-bold">{offDayCounts.rest}</span> · Sjukdagar <span className="font-bold">{offDayCounts.sick}</span>
+      </div>
+    </Card>
+  );
+
+  const canSave = form.date && (isOff || form.sport.length > 0) && !saving;
 
   return (
     <div className="w-full" style={{ backgroundColor: PAPER, color: INK }}>
@@ -1403,18 +1464,35 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 mb-4">
-                <CalendarDays size={18} style={{ color: ACCENT }} />
-                <input
-                  type="date"
-                  value={form.date}
-                  onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-                  className="border rounded-lg px-3 py-2 text-sm"
-                  style={{ borderColor: "#D5D5D5" }}
-                />
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <CalendarDays size={18} style={{ color: ACCENT }} />
+                  <input
+                    type="date"
+                    value={form.date}
+                    onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+                    className="border rounded-lg px-3 py-2 text-sm"
+                    style={{ borderColor: "#D5D5D5" }}
+                  />
+                </div>
+                {/* Pass / Vilodag / Sjukdag: sits next to the date if it fits, otherwise right below it */}
+                <div role="group" aria-label="Typ" data-testid="kind-group" className="flex flex-1 rounded-lg border overflow-hidden"
+                     style={{ minWidth: 220, borderColor: "#D5D5D5" }}>
+                  {["pass", "rest", "sick"].map((k, i) => {
+                    const on = form.kind === k;
+                    return (
+                      <button key={k} type="button" data-testid={`kind-${k}`} aria-pressed={on}
+                              onClick={() => setForm((f) => ({ ...f, kind: k }))}
+                              className="flex-1 py-2 text-sm font-semibold"
+                              style={{ backgroundColor: on ? ACCENT : "white", color: on ? "white" : "#444444", borderLeft: i ? "1px solid #D5D5D5" : "none" }}>
+                        {kindLabel(k)}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
-              {!editingId && !editingPending && lastText && (
+              {!isOff && !editingId && !editingPending && lastText && (
                 <button type="button" onClick={applyLast} data-testid="same-as-last"
                         className="w-full text-left rounded-lg border px-3 py-2 text-sm mb-4 flex items-start gap-2"
                         style={{ borderColor: ACCENT, color: ACCENT_DARK }}>
@@ -1423,6 +1501,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 </button>
               )}
 
+              {!isOff && (<>
               <div className="mb-4">
                 <div className="text-xs font-bold mb-2" style={{ color: ACCENT_DARK }}>
                   AKTIVITET
@@ -1480,6 +1559,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                   Skala enligt Borg CR10.
                 </p>
               </div>
+              </>)}
               <div className="mb-4">
                 <div className="text-xs font-bold mb-2" style={{ color: "#555555" }}>
                   ANTECKNINGAR
@@ -1487,7 +1567,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 <textarea
                   value={form.anteckningar}
                   onChange={(e) => setForm((f) => ({ ...f, anteckningar: e.target.value }))}
-                  placeholder="Vad gjorde ni? Hur kändes det?"
+                  placeholder={isOff ? (form.kind === "sick" ? "Hur mår du? Något som är bra att komma ihåg?" : "Hur kändes kroppen? Varför vila?") : "Vad gjorde ni? Hur kändes det?"}
                   rows={3}
                   className="border rounded-lg px-3 py-2 text-sm w-full resize-none"
                   style={{ borderColor: "#D5D5D5" }}
@@ -1503,9 +1583,13 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 {saving ? (<><Loader2 size={16} className="animate-spin" /> Sparar…</>)
                   : savedFlash === "queued" ? (<><AlertTriangle size={16} /> Ej sparat, försöker igen</>)
                   : savedFlash ? (<><Check size={16} /> Sparat</>)
-                  : (editingId || editingPending) ? "Spara ändringar" : "Spara pass"}
+                  : (editingId || editingPending) ? "Spara ändringar"
+                  : form.kind === "rest" ? "Spara vilodag" : form.kind === "sick" ? "Spara sjukdag" : "Spara pass"}
               </button>
-              {form.sport.length === 0 && (
+              {saveError && (
+                <p className="text-sm mt-2" role="alert" data-testid="save-error" style={{ color: "#B00020" }}>{saveError}</p>
+              )}
+              {!isOff && form.sport.length === 0 && (
                 <p className="text-xs mt-2" style={{ color: MUTED }}>
                   Välj minst en aktivitet för att spara.
                 </p>
@@ -1540,7 +1624,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                         <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ backgroundColor: "#F6D860", color: "#5C4A00" }}>Ej sparat</span>
                         <span className="font-semibold">{userName(a.entry.user || "niva")}</span>
                       </div>
-                      <div style={{ color: INK }}>{entryLine(a.entry)}</div>
+                      <div style={{ color: INK }} data-testid="pending-line">{entryLine(a.entry)}</div>
                       {a.stage === 1 && (
                         <p className="text-xs mt-1" style={{ color: "#5C4A00" }}>
                           Passet är sparat i den nya månaden men finns kvar i den gamla tills flytten är klar.
@@ -1583,9 +1667,10 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                     const preview = hasNote && e.anteckningar.length > 42
                       ? e.anteckningar.slice(0, 42) + "…"
                       : e.anteckningar;
+                    const off = isOffDay(e);
                     return (
-                      <div key={e.id} className="rounded-lg border bg-white text-sm overflow-hidden"
-                           style={{ borderColor: "#E4E4E4" }}>
+                      <div key={e.id} data-testid={off ? "offday-row" : "pass-row"} className="rounded-lg border text-sm overflow-hidden"
+                           style={{ borderColor: "#E4E4E4", backgroundColor: off ? "#F6F6F6" : "white" }}>
                         <div
                           onClick={() => toggleExpand(e.id)}
                           className="flex items-center justify-between px-3 py-2 cursor-pointer select-none"
@@ -1599,16 +1684,27 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                                 transform: isExpanded ? "rotate(0deg)" : "rotate(-90deg)",
                               }}
                             />
-                            <div className="min-w-0 truncate">
-                              <span className="font-semibold mr-2">{e.date.slice(8)}/{e.date.slice(5,7)}</span>
-                              <span style={{ color: ACCENT_DARK }}>{(e.sport||[]).join(" ")}</span>
-                              {(e.typ||[]).length > 0 && (
-                                <span style={{ color: MUTED }}> · {e.typ.join(" ")}</span>
-                              )}
-                              {e.tid && <span style={{ color: MUTED }}> · {e.tid} min</span>}
-                              {e.kansla && <span style={{ color: MUTED }}> · ansträngning {e.kansla}</span>}
+                            {/* The facts (date, codes, time, effort) never get cut off; only the note preview is shortened. */}
+                            <div className="min-w-0 flex items-baseline gap-1">
+                              <span className="shrink-0 max-w-full">
+                                <span className="font-semibold mr-2">{e.date.slice(8)}/{e.date.slice(5,7)}</span>
+                                {off ? (
+                                  <span className="inline-flex items-center gap-1" style={{ color: MUTED }}>
+                                    {e.kind === "sick" ? <Thermometer size={14} /> : <Moon size={14} />}{kindLabel(e.kind)}
+                                  </span>
+                                ) : (
+                                  <>
+                                    <span style={{ color: ACCENT_DARK }}>{(e.sport||[]).join(" ")}</span>
+                                    {(e.typ||[]).length > 0 && (
+                                      <span style={{ color: MUTED }}> · {e.typ.join(" ")}</span>
+                                    )}
+                                    {e.tid && <span style={{ color: MUTED }}> · {e.tid} min</span>}
+                                    {e.kansla && <span data-testid="effort" style={{ color: MUTED }}> · {e.kansla}/10</span>}
+                                  </>
+                                )}
+                              </span>
                               {hasNote && !isExpanded && (
-                                <span style={{ color: "#B5B5B5" }}> · {preview}</span>
+                                <span className="truncate min-w-0 flex-1" style={{ color: "#B5B5B5" }}>· {preview}</span>
                               )}
                             </div>
                           </div>
@@ -1637,7 +1733,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                               </p>
                             ) : (
                               <p className="text-xs italic" style={{ color: "#B5B5B5" }}>
-                                Ingen anteckning för det här passet.
+                                Ingen anteckning för {off ? (e.kind === "sick" ? "den här sjukdagen" : "den här vilodagen") : "det här passet"}.
                               </p>
                             )}
                           </div>
@@ -1690,11 +1786,14 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
             {(loadingMonth && statsScope === "month") || (loadingAll && statsScope === "all") ? (
               <p className="text-sm" style={{ color: MUTED }}>Laddar…</p>
             ) : dataForStats.length === 0 ? (
-              <Card>
-                <p className="text-sm" style={{ color: MUTED }}>
-                  Inga pass loggade än för det här urvalet. Gå till "Logga pass" för att komma igång.
-                </p>
-              </Card>
+              <>
+                <Card>
+                  <p className="text-sm" style={{ color: MUTED }}>
+                    Inga pass loggade än för det här urvalet. Gå till "Logga pass" för att komma igång.
+                  </p>
+                </Card>
+                {offDayCard}
+              </>
             ) : (
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1721,6 +1820,8 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                     <div className="text-xs" style={{ color: MUTED }}>Belastning (AU)</div>
                   </Card>
                 </div>
+
+                {offDayCard}
 
                 <Card>
                   <div className="text-xs font-bold mb-3" style={{ color: ACCENT_DARK }}>
@@ -1800,7 +1901,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
 
         {showChangelog && <ChangelogModal onClose={() => setShowChangelog(false)} />}
         {confirmDlg && confirmDlg.kind === "saved" && (
-          <ConfirmModal title="Ta bort passet?" text={`${userName(confirmDlg.entry.user || "niva")} · ${entryLine(confirmDlg.entry)}. Det här går inte att ångra.`}
+          <ConfirmModal title={isOffDay(confirmDlg.entry) ? `Ta bort ${kindLabel(confirmDlg.entry.kind).toLowerCase()}en?` : "Ta bort passet?"} text={`${userName(confirmDlg.entry.user || "niva")} · ${entryLine(confirmDlg.entry)}. Det här går inte att ångra.`}
                         confirmLabel="Ta bort" busy={confirmBusy} error={confirmError} onConfirm={doConfirm} onCancel={closeConfirm} />
         )}
         {confirmDlg && confirmDlg.kind === "pending" && (
