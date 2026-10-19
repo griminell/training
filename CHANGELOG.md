@@ -1,5 +1,9 @@
 # Changelog / Ändringslogg
 
+## 1.5.6 – 2026-10-20
+
+- Längst ned på sidan står nu © 2026 Grim • Bastubacken
+
 ## 1.5.5 – 2026-10-20
 
 - Personvalet (Loggar som) har flyttat från formuläret till en personmeny uppe till höger: tryck på ditt namn för att byta person

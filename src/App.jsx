@@ -5,10 +5,12 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug } from "lucide-react";
 
-export const APP_VERSION = "1.5.5";
+export const APP_VERSION = "1.5.6";
 export const APP_DATE = "2026-10-20";
 
 const CHANGELOG = [
+  { version: "1.5.6", date: "2026-10-20", items: [
+    "Längst ned på sidan står nu © 2026 Grim • Bastubacken" ] },
   { version: "1.5.5", date: "2026-10-20", items: [
     "Personvalet (Loggar som) har flyttat från formuläret till en personmeny uppe till höger: tryck på ditt namn för att byta person",
     "I menyn finns också Hantera användare, Importera, Exportera, Kopiera kopplingslänk och Koppla bort enheten",
@@ -2032,6 +2034,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
             >
               Uppdatera sidan
             </button>
+            <p className="text-xs" data-testid="credit" style={{ color: "#B5B5B5", marginTop: 22 }}>© 2026 Grim • Bastubacken</p>
           </div>
         )}
       </div>
