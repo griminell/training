@@ -12,6 +12,14 @@ def check(name, cond, extra=""):
     results.append((name, bool(cond)))
     print(("PASS " if cond else "FAIL ") + name + (f"  [{extra}]" if extra else ""))
 
+# Person menu (1.5.5): who is using the app + import/export/manage/disconnect live behind the chip top right
+def menu_open(page):
+    if page.locator("[data-testid=person-menu]").count() == 0:
+        page.locator("[data-testid=person-chip]").click(); page.wait_for_selector("[data-testid=person-menu]")
+def switch_user(page, name):
+    menu_open(page); page.locator("[data-testid=person-menu] [role=menuitemradio]", has_text=name).click(); page.wait_for_timeout(250)
+
+
 TODAY = datetime.datetime.now(datetime.timezone.utc).date()
 M = TODAY.strftime("%Y-%m")
 USERS = [{"id": "niva", "name": "Niva", "color": "#C2477A"}, {"id": "grim", "name": "Grim", "color": "#004B26"}, {"id": "anna", "name": "Anna", "color": "#1D6FA5"}]
@@ -49,10 +57,9 @@ with sync_playwright() as pw:
 
         # ---- 1. Layout ----
         kb = P.locator("[data-testid=kind-group]").bounding_box(); db = P.locator("input[type=date]").bounding_box()
-        dv = P.locator("[data-testid=user-divider]").bounding_box(); ub = P.get_by_role("button", name="Niva", exact=True).first.bounding_box()
         check("1 Pass/Vilodag/Sjukdag sits above the date picker", kb["y"] + kb["height"] <= db["y"], f"{kb} {db}")
         check("1 Kind group has the full width", kb["width"] > 300 and kb["x"] + kb["width"] <= 390, str(kb))
-        check("1 Divider sits between the user choice and the kind group", ub["y"] + ub["height"] <= dv["y"] <= kb["y"] and dv["height"] <= 2, f"{ub} {dv} {kb}")
+        check("1 (1.5.5) The 'Loggar som' row and its divider are gone from the form", P.locator("[data-testid=user-divider]").count() == 0 and "LOGGAR SOM" not in P.locator("body").inner_text())
         pt = P.evaluate("parseFloat(getComputedStyle(document.querySelector('.max-w-3xl')).paddingTop)")
         check("1 (1.5.4) More air at the top (>= 40 px) so the title stays clear of the iOS soft edge", pt >= 40, str(pt))
         P.screenshot(path=str(SHOTS / "1_layout.png"), full_page=True)
@@ -63,10 +70,10 @@ with sync_playwright() as pw:
         check("2 Rensa sits next to Spara, smaller, same row", abs((cb["y"] + cb["height"] / 2) - (sv["y"] + sv["height"] / 2)) < 4 and cb["width"] < sv["width"] / 2 and cb["x"] > sv["x"], f"{cb} {sv}")
         check("2 Rensa has no fill and a border in the user colour (Niva #C2477A)", css[0] in ("rgba(0, 0, 0, 0)", "transparent") and css[1] == "rgb(194, 71, 122)" and css[2] == "1px", str(css))
         check("2 Rensa is dimmed/disabled while the form is empty", clear_btn(P).is_disabled() and clear_btn(P).inner_text().strip() == "Rensa")
-        P.get_by_role("button", name="Grim", exact=True).first.click(); P.wait_for_timeout(200)
+        switch_user(P, "Grim")
         css2 = P.evaluate("getComputedStyle(document.querySelector('[data-testid=clear-form]')).borderTopColor")
         check("2 Rensa border follows the user colour (Grim #004B26)", css2 == "rgb(0, 75, 38)", css2)
-        P.get_by_role("button", name="Niva", exact=True).first.click(); P.wait_for_timeout(200)
+        switch_user(P, "Niva")
 
         # ---- 3. Rensa: clears what was filled in, keeps date, user, kind ----
         P.fill("input[type=date]", f"{M}-10")
@@ -81,7 +88,7 @@ with sync_playwright() as pw:
               P.locator("[data-testid=sport-group] button[aria-pressed=true]").count() == 0 and P.locator("[data-testid=typ-group] button[aria-pressed=true]").count() == 0
               and P.input_value("input[inputmode=numeric]") == "" and not effort_set(P) and P.input_value("textarea") == "")
         check("3 Date is kept", P.input_value("input[type=date]") == f"{M}-10", P.input_value("input[type=date]"))
-        check("3 User and Pass stay selected", pressed(P, "pass") and P.get_by_role("button", name="Niva", exact=True).first.get_attribute("aria-pressed") == "true")
+        check("3 User and Pass stay selected", pressed(P, "pass") and P.locator("[data-testid=person-chip]").inner_text().strip() == "Niva")
         check("3 'Fler' folds back together", "Fler" in P.locator("[data-testid=sport-group-more]").inner_text())
         check("3 Rensa writes nothing to the database", puts(port) == p0)
         check("3 Rensa is disabled again", clear_btn(P).is_disabled())
@@ -134,19 +141,19 @@ with sync_playwright() as pw:
         check("6 The choice is stored on the device", P.evaluate("localStorage.getItem('nivadagbok-hide-offdays')") == "1")
         P.screenshot(path=str(SHOTS / "6_dolda.png"), full_page=True)
         # applies to all persons: Grim has none (button gone), Anna only has a rest day (empty list message)
-        P.get_by_role("button", name="Grim", exact=True).first.click(); P.wait_for_timeout(300)
+        switch_user(P, "Grim")
         check("6 Person without rest/sick days: no button", P.locator("[data-testid=toggle-offdays]").count() == 0)
-        P.get_by_role("button", name="Anna", exact=True).first.click(); P.wait_for_timeout(300)
+        switch_user(P, "Anna")
         msg = P.locator("[data-testid=empty-list]")
         check("6 Same choice for another person: only a rest day -> 'Inga pass den här månaden. 1 vilo-/sjukdag är dold.'", msg.count() == 1 and msg.inner_text().strip() == "Inga pass den här månaden. 1 vilo-/sjukdag är dold.", msg.inner_text() if msg.count() else "none")
         P.screenshot(path=str(SHOTS / "6_anna_tom.png"), full_page=True)
-        P.get_by_role("button", name="Niva", exact=True).first.click(); P.wait_for_timeout(300)
+        switch_user(P, "Niva")
         # statistics are not affected
         P.get_by_role("button", name="Statistik").click(); P.wait_for_timeout(500)
         P.locator("button[aria-pressed]", has_text="Niva").first.click() if P.locator("button[aria-pressed]", has_text="Niva").count() else None
         st = re.sub(r"\s+", " ", P.locator("[data-testid=offday-stats]").inner_text())
         check("6 Statistics still count the hidden days", st == "Vilodagar 1 · Sjukdagar 1", st)
-        dots = P.evaluate("[...document.querySelectorAll('span.rounded-full.inline-block')].map(e => e.style.backgroundColor)")
+        dots = P.evaluate("[...document.querySelectorAll('span.rounded-full.inline-block.h-2\\\\.5')].map(e => e.style.backgroundColor)")
         check("6 Activity chart: 9 activities have 9 different colours", len(dots) == 9 and len(set(dots)) == 9, str(dots))
         P.screenshot(path=str(SHOTS / "6_statistik.png"), full_page=True)
         P.get_by_role("button", name="Logga pass").click(); P.wait_for_timeout(300)

@@ -1,5 +1,11 @@
 # Changelog / Ändringslogg
 
+## 1.5.5 – 2026-10-20
+
+- Personvalet (Loggar som) har flyttat från formuläret till en personmeny uppe till höger: tryck på ditt namn för att byta person
+- I menyn finns också Hantera användare, Importera, Exportera, Kopiera kopplingslänk och Koppla bort enheten
+- Formuläret börjar nu direkt med Pass / Vilodag / Sjukdag
+
 ## 1.5.4 – 2026-10-20
 
 - Mer luft överst: rubriken och knapparna för import och export hamnar nu under iOS mjuka kant

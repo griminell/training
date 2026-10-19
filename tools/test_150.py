@@ -12,6 +12,16 @@ def check(name, cond, extra=""):
     results.append((name, bool(cond)))
     print(("PASS " if cond else "FAIL ") + name + (f"  [{extra}]" if extra else ""))
 
+# Person menu (1.5.5): who is using the app + import/export/manage/disconnect live behind the chip top right
+def menu_open(page):
+    if page.locator("[data-testid=person-menu]").count() == 0:
+        page.locator("[data-testid=person-chip]").click(); page.wait_for_selector("[data-testid=person-menu]")
+def menu_click(page, testid):
+    menu_open(page); page.locator(f"[data-testid={testid}]").click()
+def switch_user(page, name):
+    menu_open(page); page.locator("[data-testid=person-menu] [role=menuitemradio]", has_text=name).click(); page.wait_for_timeout(250)
+
+
 def start_mock(port, *flags):
     p = subprocess.Popen(["node", str(ROOT / "tools/mock-firebase.js"), str(port), str(ROOT / "tools/seed.json"), *flags],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -259,11 +269,11 @@ with sync_playwright() as pw:
         check("9 Importing same file again adds no duplicates", sum(e["anteckningar"] == "imp1" for e in month(port, "2026-10")) == 1)
         # export aborts when a month cannot be fetched
         ctl(port, offline=1)
-        P.get_by_role("button", name="Exportera").click(); P.wait_for_timeout(1500)
+        menu_click(P, "menu-export"); P.wait_for_timeout(1500)
         check("9 Export refuses to make an incomplete file", P.locator("text=Exporten avbröts").count() == 1)
         ctl(port, offline=0)
         # users: add a user (goes through saveKey too)
-        P.get_by_role("button", name="Hantera användare").click(); P.wait_for_timeout(300)
+        menu_click(P, "person-manage"); P.wait_for_timeout(300)
         P.get_by_role("button", name="Lägg till användare").click()
         P.fill("input[placeholder='t.ex. Alva']", "Alva")
         P.locator("[role=dialog], .fixed").get_by_role("button", name="Spara", exact=True).click(); P.wait_for_timeout(1000)
@@ -279,7 +289,7 @@ with sync_playwright() as pw:
         ctx, P = open_app(browser, port); P.wait_for_timeout(500)
         dialogs = []
         P.on("dialog", lambda d: (dialogs.append(d.message), d.dismiss()))
-        P.get_by_role("button", name="Koppla bort enheten").click()
+        menu_click(P, "menu-disconnect")
         check("10 Disconnect uses app modal", P.locator("text=Koppla bort den här enheten?").count() == 1 and not dialogs)
         P.get_by_role("button", name="Avbryt").click()
         ctx.close()

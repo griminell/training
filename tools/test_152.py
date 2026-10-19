@@ -14,6 +14,16 @@ def check(name, cond, extra=""):
     results.append((name, bool(cond)))
     print(("PASS " if cond else "FAIL ") + name + (f"  [{extra}]" if extra else ""))
 
+# Person menu (1.5.5): who is using the app + import/export/manage/disconnect live behind the chip top right
+def menu_open(page):
+    if page.locator("[data-testid=person-menu]").count() == 0:
+        page.locator("[data-testid=person-chip]").click(); page.wait_for_selector("[data-testid=person-menu]")
+def menu_click(page, testid):
+    menu_open(page); page.locator(f"[data-testid={testid}]").click()
+def switch_user(page, name):
+    menu_open(page); page.locator("[data-testid=person-menu] [role=menuitemradio]", has_text=name).click(); page.wait_for_timeout(250)
+
+
 TODAY = datetime.datetime.now(datetime.timezone.utc).date()
 M = TODAY.strftime("%Y-%m")
 def day(n): return f"{M}-{n:02d}"
@@ -148,10 +158,10 @@ with sync_playwright() as pw:
         check("4 Refused also when the other day was saved from another phone", P.locator("[data-testid=save-error]").count() == 1 and len([e for e in month_raw(port) if e["date"] == day(14)]) == 1)
         ctxB.close()
         # another user may log a rest day on the same date
-        P.locator("button[aria-pressed]", has_text="Grim").first.click(); P.wait_for_timeout(200)
+        switch_user(P, "Grim")
         set_kind(P, "rest"); P.fill("input[type=date]", day(14)); save_btn(P).click(); P.wait_for_timeout(1500)
         check("4 Another user can log a rest day on the same date", len([e for e in month_raw(port) if e["date"] == day(14) and e["user"] == "grim"]) == 1)
-        P.locator("button[aria-pressed]", has_text="Niva").first.click(); P.wait_for_timeout(200)
+        switch_user(P, "Niva")
 
         # ---- 5. Statistics ----
         # Niva now has: real passes day 1, 2, 3, 12 (20 min x3). rest: 4, 5, 12, 14 = 4 ; sick: 6 = 1
@@ -224,7 +234,7 @@ with sync_playwright() as pw:
         before = norm(month_raw(port))
         ctxE, X = open_app(browser, port, "niva", accept_downloads=True)
         with X.expect_download() as dl:
-            X.get_by_role("button", name="Exportera").click()
+            menu_click(X, "menu-export")
         csv_path = SHOTS / "export.csv"; dl.value.save_as(str(csv_path))
         text = csv_path.read_text(encoding="utf-8-sig")
         lines = text.strip().splitlines()

@@ -3,12 +3,16 @@ import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff } from "lucide-react";
+import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug } from "lucide-react";
 
-export const APP_VERSION = "1.5.4";
+export const APP_VERSION = "1.5.5";
 export const APP_DATE = "2026-10-20";
 
 const CHANGELOG = [
+  { version: "1.5.5", date: "2026-10-20", items: [
+    "Personvalet (Loggar som) har flyttat från formuläret till en personmeny uppe till höger: tryck på ditt namn för att byta person",
+    "I menyn finns också Hantera användare, Importera, Exportera, Kopiera kopplingslänk och Koppla bort enheten",
+    "Formuläret börjar nu direkt med Pass / Vilodag / Sjukdag" ] },
   { version: "1.5.4", date: "2026-10-20", items: [
     "Mer luft överst: rubriken och knapparna för import och export hamnar nu under iOS mjuka kant",
     "Knappen Vilo-/sjukdagar ligger nu vänsterställd direkt under rubriken Loggade pass" ] },
@@ -698,6 +702,14 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const [confirmError, setConfirmError] = useState(null);
   const [saveError, setSaveError] = useState(null);
   const [hideOffDays, setHideOffDays] = useState(getHideOffDays);
+  const [showMenu, setShowMenu] = useState(false); // person menu (top right)
+  const importRef = React.useRef(null);
+  useEffect(() => {
+    if (!showMenu) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") setShowMenu(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [showMenu]);
   function toggleHideOffDays() {
     const next = !hideOffDays;
     setHideOffDays(next);
@@ -729,6 +741,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   }
   const activeUserId = view === "stats" ? statsUser : form.user;
   applyTheme(users.find((u) => u.id === activeUserId) || visibleUsers[0] || DEFAULT_USERS[0]);
+  const chipColor = themeForUser(users.find((u) => u.id === form.user) || visibleUsers[0] || DEFAULT_USERS[0]).accent;
   const userName = (id) => (users.find((u) => u.id === id) || {}).name || id;
 
   const loadUsers = useCallback(async () => {
@@ -1380,37 +1393,76 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
           <h1 className="text-3xl font-bold tracking-tight min-w-0" style={{ color: INK }}>
             Träningsdagbok
           </h1>
-          <div className="flex items-center gap-2 mt-1 shrink-0">
-            <label
-              title="Importera pass från en tidigare CSV-export (t.ex. efter en uppdatering)"
-              aria-label="Importera"
-              className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold border cursor-pointer"
-              style={{ borderColor: "#D5D5D5", color: MUTED }}
-            >
-              {importing ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
-              <span className="hidden sm:inline">Importera</span>
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files && e.target.files[0];
-                  if (file) handleImportFile(file);
-                  e.target.value = "";
-                }}
-              />
-            </label>
-            <button
-              onClick={handleExport}
-              disabled={exporting}
-              title="Ladda ner alla loggade pass som CSV-fil (säkerhetskopia)"
-              aria-label="Exportera"
-              className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold border"
-              style={{ borderColor: "#D5D5D5", color: MUTED }}
-            >
-              {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-              <span className="hidden sm:inline">Exportera</span>
+          {/* Person menu: who is using the app, plus the rarely used actions */}
+          <div className="relative mt-1 shrink-0">
+            <button type="button" data-testid="person-chip" aria-haspopup="menu" aria-expanded={showMenu}
+                    onClick={() => { setLinkCopied(false); setShowMenu((v) => !v); }}
+                    className="relative z-40 flex items-center gap-2 pl-3 pr-2 py-2 rounded-full text-sm font-semibold border bg-white"
+                    style={{ borderColor: chipColor, color: INK }}>
+              <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: chipColor }} />
+              {userName(form.user)}
+              {(exporting || importing) ? <Loader2 size={14} className="animate-spin" style={{ color: MUTED }} /> : <ChevronDown size={14} style={{ color: MUTED }} />}
             </button>
+            <input ref={importRef} type="file" accept=".csv,text/csv" className="hidden" aria-label="Importera"
+                   onChange={(e) => {
+                     const file = e.target.files && e.target.files[0];
+                     if (file) handleImportFile(file);
+                     e.target.value = "";
+                   }} />
+            {showMenu && (
+              <>
+                <div className="fixed inset-0 z-30" data-testid="person-menu-backdrop" onClick={() => setShowMenu(false)} />
+                <div role="menu" data-testid="person-menu" className="absolute right-0 top-full mt-2 z-40 w-64 rounded-xl border bg-white shadow-lg overflow-hidden"
+                     style={{ borderColor: "#E4E4E4" }}>
+                  <div className="px-4 pt-3 pb-1 text-xs font-bold" style={{ color: MUTED }}>LOGGAR SOM</div>
+                  {visibleUsers.map((u) => (
+                    <button key={u.id} type="button" role="menuitemradio" aria-checked={form.user === u.id} data-testid={`person-${u.id}`}
+                            onClick={() => { setForm((f) => ({ ...f, user: u.id })); setShowMenu(false); }}
+                            className="w-full flex items-center gap-3 px-4 text-sm text-left" style={{ minHeight: 44, color: INK }}>
+                      <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: themeForUser(u).accent }} />
+                      <span className="flex-1" style={{ fontWeight: form.user === u.id ? 700 : 500 }}>{u.name}</span>
+                      {form.user === u.id && <Check size={16} style={{ color: themeForUser(u).accent }} />}
+                    </button>
+                  ))}
+                  <button type="button" role="menuitem" data-testid="person-manage" onClick={() => { setShowMenu(false); setShowUsers(true); }}
+                          className="w-full flex items-center gap-3 px-4 text-sm text-left" style={{ minHeight: 44, color: MUTED }}>
+                    <Users size={16} /> Hantera användare
+                  </button>
+                  <div className="border-t my-1" style={{ borderColor: "#E4E4E4" }} />
+                  <button type="button" role="menuitem" data-testid="menu-import" disabled={importing}
+                          onClick={() => { setShowMenu(false); importRef.current && importRef.current.click(); }}
+                          title="Importera pass från en tidigare CSV-export (t.ex. efter en uppdatering)"
+                          className="w-full flex items-center gap-3 px-4 text-sm text-left" style={{ minHeight: 44, color: INK }}>
+                    <Upload size={16} style={{ color: MUTED }} /> Importera
+                  </button>
+                  <button type="button" role="menuitem" data-testid="menu-export" disabled={exporting}
+                          onClick={() => { setShowMenu(false); handleExport(); }}
+                          title="Ladda ner alla loggade pass som CSV-fil (säkerhetskopia)"
+                          className="w-full flex items-center gap-3 px-4 text-sm text-left" style={{ minHeight: 44, color: INK }}>
+                    <Download size={16} style={{ color: MUTED }} /> Exportera
+                  </button>
+                  {connLink && (
+                    <>
+                      <div className="border-t my-1" style={{ borderColor: "#E4E4E4" }} />
+                      <button type="button" role="menuitem" data-testid="menu-copylink"
+                              onClick={() => {
+                                try { const r = navigator.clipboard && navigator.clipboard.writeText(connLink); if (r && r.catch) r.catch(() => {}); } catch (e) {}
+                                setLinkCopied(true);
+                              }}
+                              className="w-full flex items-center gap-3 px-4 py-2 text-sm text-left" style={{ minHeight: 44, color: INK }}>
+                        <Copy size={16} className="shrink-0" style={{ color: MUTED }} />
+                        {linkCopied ? "Länk kopierad. Skicka den till rätt person" : "Kopiera kopplingslänk till annan enhet"}
+                      </button>
+                      <button type="button" role="menuitem" data-testid="menu-disconnect"
+                              onClick={() => { setShowMenu(false); setConfirmError(null); setConfirmDlg({ kind: "disconnect" }); }}
+                              className="w-full flex items-center gap-3 px-4 text-sm text-left" style={{ minHeight: 44, color: "#B5544A" }}>
+                        <Unplug size={16} /> Koppla bort enheten
+                      </button>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
         {importMsg && (
@@ -1486,27 +1538,6 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                   </button>
                 </div>
               )}
-
-              <div className="mb-4">
-                <div className="text-xs font-bold mb-2" style={{ color: ACCENT_DARK }}>
-                  LOGGAR SOM
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {visibleUsers.map((u) => (
-                    <Pill key={u.id} active={form.user === u.id} color={themeForUser(u).accent}
-                          onClick={() => setForm((f) => ({ ...f, user: u.id }))}>
-                      {u.name}
-                    </Pill>
-                  ))}
-                  <button type="button" onClick={() => setShowUsers(true)} aria-label="Hantera användare"
-                          className="px-3 py-2 rounded-full text-sm border flex items-center gap-1.5"
-                          style={{ borderColor: "#D5D5D5", color: MUTED }}>
-                    <Users size={15} /> Hantera
-                  </button>
-                </div>
-              </div>
-
-              <div className="border-t mb-4" data-testid="user-divider" style={{ borderColor: "#E4E4E4" }} />
 
               {/* What is logged (Pass / Vilodag / Sjukdag) comes before the date, so the date is not forgotten when logging several days */}
               <div role="group" aria-label="Typ" data-testid="kind-group" className="flex w-full rounded-lg border overflow-hidden mb-4"
@@ -2001,19 +2032,6 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
             >
               Uppdatera sidan
             </button>
-            <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2" style={{ marginTop: 20 }}>
-              <button
-                type="button"
-                className="text-xs underline"
-                style={{ color: ACCENT_DARK }}
-                onClick={() => { navigator.clipboard && navigator.clipboard.writeText(connLink); setLinkCopied(true); }}
-              >
-                {linkCopied ? "Länk kopierad – skicka till rätt person" : "Kopiera kopplingslänk till annan enhet"}
-              </button>
-              <button type="button" className="text-xs underline" style={{ color: "#999" }} onClick={() => { setConfirmError(null); setConfirmDlg({ kind: "disconnect" }); }}>
-                Koppla bort enheten
-              </button>
-            </div>
           </div>
         )}
       </div>
