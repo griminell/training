@@ -43,26 +43,76 @@ function makeStorage(conn) {
     connect();
     listeners.forEach((f) => f());
   });
-  return {
+  const url = (key) => `${base}/${encodeURIComponent(key)}.json`;
+  // fetch with a timeout, so a hung connection counts as a failure instead of waiting forever
+  const tfetch = async (u, opts) => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 15000);
+    try { return await fetch(u, { ...opts, signal: ctrl.signal }); } finally { clearTimeout(t); }
+  };
+  let ifMatchBroken = false; // set if the browser/server refuses the if-match header (CORS)
+  const api = {
+    // "on" = ETag readable, writes are conditional. "limited" = fallback (compare right before write).
+    etagMode: null,
     async get(key) {
-      const r = await fetch(`${base}/${encodeURIComponent(key)}.json`);
+      const r = await tfetch(url(key));
       if (!r.ok) throw new Error("get");
       const v = await r.json();
       return v == null ? null : { key, value: v };
     },
+    // Read the raw stored value together with its ETag (version number).
+    async getV(key) {
+      const r = await tfetch(url(key), { headers: { "X-Firebase-ETag": "true" } });
+      if (!r.ok) throw new Error("get");
+      const raw = await r.json();
+      const etag = r.headers.get("ETag") || null;
+      api.etagMode = etag && !ifMatchBroken ? "on" : "limited";
+      return { raw: raw == null ? null : raw, etag };
+    },
+    // Write only if the value is still the version we read. Returns "ok" or "conflict"; throws if unreachable.
+    async putIf(key, raw, prev) {
+      const body = JSON.stringify(raw);
+      if (prev.etag && !ifMatchBroken) {
+        try {
+          const r = await tfetch(url(key), { method: "PUT", body, headers: { "if-match": prev.etag } });
+          if (r.status === 412) return "conflict";
+          if (!r.ok) throw new Error("put");
+          return "ok";
+        } catch (e) {
+          // A network-level failure while the browser says it is online may mean the if-match header
+          // was refused. Fall through to the compare-then-write fallback; if that also fails we are offline.
+          if (e.message === "put" || (typeof navigator !== "undefined" && navigator.onLine === false)) throw e;
+        }
+        const out = await api.putCompare(key, raw, prev);
+        if (out === "ok") { ifMatchBroken = true; api.etagMode = "limited"; }
+        return out;
+      }
+      return api.putCompare(key, raw, prev);
+    },
+    // Fallback: re-read right before writing and refuse if the value changed since we read it.
+    async putCompare(key, raw, prev) {
+      const r0 = await tfetch(url(key));
+      if (!r0.ok) throw new Error("get");
+      const now = await r0.json();
+      if (JSON.stringify(now == null ? null : now) !== JSON.stringify(prev.raw)) return "conflict";
+      const r = await tfetch(url(key), { method: "PUT", body: JSON.stringify(raw) });
+      if (!r.ok) throw new Error("put");
+      return "ok";
+    },
     async set(key, value) {
-      const r = await fetch(`${base}/${encodeURIComponent(key)}.json`, { method: "PUT", body: JSON.stringify(value) });
+      const r = await tfetch(url(key), { method: "PUT", body: JSON.stringify(value) });
       if (!r.ok) throw new Error("set");
       return { key, value };
     },
     async list(prefix) {
-      const r = await fetch(`${base}.json?shallow=true`);
+      const r = await tfetch(`${base}.json?shallow=true`);
       if (!r.ok) throw new Error("list");
       const o = (await r.json()) || {};
       return { keys: Object.keys(o).filter((k) => k.startsWith(prefix || "")) };
     },
     subscribe(f) { listeners.add(f); return () => listeners.delete(f); },
   };
+  return api;
 }
 
 function Setup({ onDone }) {
@@ -110,7 +160,7 @@ function Root() {
   return (
     <App
       connLink={link}
-      onDisconnect={() => { if (confirm("Koppla bort den här enheten? Datan finns kvar i molnet.")) { try { localStorage.removeItem(LS); } catch (e) {} location.reload(); } }}
+      onDisconnect={() => { try { localStorage.removeItem(LS); } catch (e) {} location.reload(); }}
     />
   );
 }

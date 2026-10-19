@@ -1,5 +1,15 @@
 # Changelog / Ändringslogg
 
+## 1.5.0 – 2026-10-19
+
+- Säkrare sparning: om två enheter sparar samtidigt blir båda passen kvar
+- Ej sparat: pass som inte kommer fram sparas på telefonen och skickas automatiskt när nätet är tillbaka
+- Du kan spara igen, redigera eller radera ett pass som är Ej sparat
+- Bekräftelse innan ett pass tas bort
+- Att flytta ett pass till en annan månad kan inte längre tappa passet på vägen
+- Sidfoten visar om skyddet mot överskrivning är på
+- Export avbryts med ett tydligt fel om någon månad inte kunde hämtas, i stället för en ofullständig fil
+
 ## 1.4.7 – 2026-10-18
 
 - Diagrammen på statistiksidan klipps inte längre av till vänster: siffrorna på den lodräta axeln syns nu

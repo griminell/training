@@ -3,12 +3,20 @@ import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus } from "lucide-react";
+import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw } from "lucide-react";
 
-export const APP_VERSION = "1.4.7";
-export const APP_DATE = "2026-10-18";
+export const APP_VERSION = "1.5.0";
+export const APP_DATE = "2026-10-19";
 
 const CHANGELOG = [
+  { version: "1.5.0", date: "2026-10-19", items: [
+    "Säkrare sparning: om två enheter sparar samtidigt blir båda passen kvar",
+    "Ej sparat: pass som inte kommer fram sparas på telefonen och skickas automatiskt när nätet är tillbaka",
+    "Du kan spara igen, redigera eller radera ett pass som är Ej sparat",
+    "Bekräftelse innan ett pass tas bort",
+    "Att flytta ett pass till en annan månad kan inte längre tappa passet på vägen",
+    "Sidfoten visar om skyddet mot överskrivning är på",
+    "Export avbryts med ett tydligt fel om någon månad inte kunde hämtas, i stället för en ofullständig fil" ] },
   { version: "1.4.7", date: "2026-10-18", items: [
     "Diagrammen på statistiksidan klipps inte längre av till vänster: siffrorna på den lodräta axeln syns nu",
     "Första punkten i diagrammet Ansträngning över tid ligger inte längre tryckt mot kanten" ] },
@@ -210,23 +218,134 @@ function normalizeEntries(list) {
     return { ...e, kansla: k ? String(k * 2) : "", cr10: true };
   });
 }
-async function safeGet(key) {
+// Read a key. ok=false means the read FAILED (offline etc.), which is different from "no data" (ok=true, data=null).
+async function safeGetResult(key) {
   try {
     const res = await window.storage.get(key, true);
-    if (!(res && res.value)) return null;
+    if (!(res && res.value)) return { ok: true, data: null };
     const data = JSON.parse(res.value);
-    return key.startsWith("entries:") ? normalizeEntries(data) : data;
+    return { ok: true, data: key.startsWith("entries:") ? normalizeEntries(data) : data };
   } catch (e) {
-    return null;
+    return { ok: false, data: null };
   }
 }
-async function safeSet(key, value) {
-  try {
-    const result = await window.storage.set(key, JSON.stringify(value), true);
-    return !!result;
-  } catch (e) {
-    return false;
+async function safeGet(key) {
+  return (await safeGetResult(key)).data;
+}
+
+// ---------------------------------------------------------------------------------------------
+// The ONE place where data is written. Every save (add/edit/delete pass, import, user list) goes
+// through saveKey: read the latest value together with its version (ETag), apply the change to
+// that latest value (the "mutator"), and write only if nobody changed it in between. If someone
+// did (HTTP 412), read again and redo the change on the newer value, up to MAX_TRIES times.
+// Result: { status: "ok" | "offline" | "conflict" | "abort" | "error", value?, message? }
+// A later full offline queue can be swapped in behind this function without touching callers.
+// ---------------------------------------------------------------------------------------------
+const MAX_TRIES = 5;
+const NO_CHANGE = { noChange: true };
+async function saveKey(key, mutate, parse, empty, opts = {}) {
+  for (let i = 0; i < MAX_TRIES; i++) {
+    let cur;
+    try { cur = await window.storage.getV(key); } catch (e) { return { status: "offline" }; }
+    let value = empty;
+    if (cur.raw != null) {
+      try { value = parse(JSON.parse(cur.raw)); } catch (e) { return { status: "error" }; } // never overwrite data we cannot read
+    }
+    const out = mutate(value);
+    if (out && out.abort !== undefined) return { status: "abort", message: out.abort };
+    if (out === NO_CHANGE) return { status: "ok", value };
+    let r;
+    try { r = await window.storage.putIf(key, JSON.stringify(out), cur); } catch (e) { return { status: "offline" }; }
+    if (r === "ok") {
+      // Reserve mode (no ETag): the check before writing is not airtight, so look again shortly after.
+      // If our change is gone (a concurrent write landed on top), redo it on the newer data.
+      if (opts.verify && window.storage.etagMode !== "on") {
+        await new Promise((res) => setTimeout(res, 700));
+        try {
+          const chk = await window.storage.getV(key);
+          const latest = chk.raw != null ? parse(JSON.parse(chk.raw)) : empty;
+          const again = mutate(latest);
+          const same = again === NO_CHANGE || (again && again.abort === undefined && JSON.stringify(again) === JSON.stringify(latest));
+          if (!same) continue;
+          return { status: "ok", value: latest };
+        } catch (e) { /* cannot verify: accept the write */ }
+      }
+      return { status: "ok", value: out };
+    }
+    // "conflict": someone else wrote first. Loop: read their version and redo our change on top of it.
   }
+  return { status: "conflict" };
+}
+function saveMonth(monthKey, mutate) {
+  return saveKey(`entries:${monthKey}`, mutate, normalizeEntries, [], { verify: true });
+}
+const byDate = (a, b) => a.date.localeCompare(b.date);
+
+// ---- "Ej sparat" queue (localStorage) ----
+// Stores ACTIONS ("put this pass"), never copies of a whole month, so a late retry is applied to the
+// latest data and replaces by id (no duplicates, nobody else's pass is overwritten).
+// Action: { qid, entry, removeFrom (month key or null), stage (0 = write entry, 1 = remove old copy), attempts, queuedAt }
+const PENDING_KEY = "nivadagbok-pending";
+function loadPending() {
+  try {
+    const a = JSON.parse(localStorage.getItem(PENDING_KEY));
+    return Array.isArray(a) ? a.filter((x) => x && x.entry && x.entry.id && x.entry.date) : [];
+  } catch (e) { return []; }
+}
+function storePending(list) {
+  try { localStorage.setItem(PENDING_KEY, JSON.stringify(list)); } catch (e) { /* kept in memory only */ }
+}
+async function runAction(a, onStage) {
+  const id = a.entry.id;
+  const key = monthKeyOf(a.entry.date);
+  if (!a.stage) {
+    const r = await saveMonth(key, (list) => {
+      const next = list.some((e) => e.id === id) ? list.map((e) => (e.id === id ? a.entry : e)) : [...list, a.entry];
+      return next.sort(byDate);
+    });
+    if (r.status !== "ok") return r;
+    if (a.removeFrom && a.removeFrom !== key) onStage(1);
+  }
+  if (a.removeFrom && a.removeFrom !== key) {
+    // Moving to another month: the new copy is already saved above, only now remove the old one.
+    const r2 = await saveMonth(a.removeFrom, (list) => (list.some((e) => e.id === id) ? list.filter((e) => e.id !== id) : NO_CHANGE));
+    if (r2.status !== "ok") return r2;
+  }
+  return { status: "ok" };
+}
+function entryLine(e) {
+  return [
+    `${e.date.slice(8)}/${e.date.slice(5, 7)}`,
+    (e.sport || []).join(" "),
+    (e.typ || []).length ? e.typ.join(" ") : null,
+    e.tid ? `${e.tid} min` : null,
+    e.kansla ? `ansträngning ${e.kansla}` : null,
+  ].filter(Boolean).join(" · ");
+}
+
+// Confirmation dialog in the app's style (replaces the browser's confirm()).
+function ConfirmModal({ title, text, confirmLabel, busy, error, onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.4)" }}
+         onClick={(e) => { if (e.target === e.currentTarget && !busy) onCancel(); }}>
+      <div role="dialog" aria-modal="true" aria-label={title} className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-4"
+           style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
+        <h2 className="text-lg font-bold mb-1" style={{ color: INK }}>{title}</h2>
+        <p className="text-sm mb-3" style={{ color: INK }}>{text}</p>
+        {error && <p className="text-sm font-semibold mb-3" style={{ color: "#B5544A" }}>{error}</p>}
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={onCancel} disabled={busy}
+                  className="rounded-lg text-sm font-semibold border" style={{ minHeight: 44, borderColor: "#D5D5D5", color: "#444444" }}>
+            Avbryt
+          </button>
+          <button type="button" onClick={onConfirm} disabled={busy}
+                  className="rounded-lg text-sm font-bold text-white flex items-center justify-center gap-2" style={{ minHeight: 44, backgroundColor: "#B5544A", opacity: busy ? 0.6 : 1 }}>
+            {busy && <Loader2 size={15} className="animate-spin" />}{confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 async function safeListMonths() {
   try {
@@ -456,14 +575,22 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const [loadingMonth, setLoadingMonth] = useState(true);
   const [loadingAll, setLoadingAll] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [savedFlash, setSavedFlash] = useState(false);
-  const [saveError, setSaveError] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false); // false | "ok" | "queued"
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState(null);
   const [expandedIds, setExpandedIds] = useState(new Set());
   const [editingId, setEditingId] = useState(null);
   const [editingOriginalMonth, setEditingOriginalMonth] = useState(null);
+  // Ej sparat: the queue lives in localStorage (see loadPending); pendingRef is the source of truth for callbacks.
+  const [pending, setPending] = useState(loadPending);
+  const pendingRef = React.useRef(pending);
+  const [editingPending, setEditingPending] = useState(null); // { qid, entryId, removeFrom } while a queued pass is loaded in the form
+  const [retryingQid, setRetryingQid] = useState(null);
+  const [confirmDlg, setConfirmDlg] = useState(null); // { kind: "saved" | "pending" | "disconnect", ... }
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmError, setConfirmError] = useState(null);
+  const [protection, setProtection] = useState(null); // null | "on" | "limited"
 
   const emptyForm = {
     date: todayISO(),
@@ -517,16 +644,17 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
 
   // Läs–ändra–skriv mot senaste listan; skriver aldrig om hämtningen misslyckas
   async function updateUsers(mutator) {
-    let latest = DEFAULT_USERS;
-    try {
-      const res = await window.storage.get("meta:users", true);
-      if (res && res.value) { const l = JSON.parse(res.value); if (Array.isArray(l) && l.length) latest = l; }
-    } catch (e) { return { ok: false, error: "Ingen kontakt med databasen. Försök igen." }; }
-    const next = mutator(latest);
-    if (typeof next === "string") return { ok: false, error: next };
-    const ok = await safeSet("meta:users", next);
-    if (!ok) return { ok: false, error: "Kunde inte spara. Försök igen." };
-    setUsers(next);
+    const r = await saveKey(
+      "meta:users",
+      (latest) => { const next = mutator(latest); return typeof next === "string" ? { abort: next } : next; },
+      (l) => (Array.isArray(l) && l.length ? l : DEFAULT_USERS),
+      DEFAULT_USERS
+    );
+    syncProtection();
+    if (r.status === "abort") return { ok: false, error: r.message };
+    if (r.status === "conflict") return { ok: false, error: "Någon annan ändrade samtidigt. Försök igen." };
+    if (r.status !== "ok") return { ok: false, error: "Ingen kontakt med databasen. Försök igen." };
+    setUsers(r.value);
     return { ok: true };
   }
 
@@ -542,10 +670,13 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     refreshMonthList();
   }, [refreshMonthList]);
 
+  const loadedMonthRef = React.useRef(null);
   const loadMonth = useCallback(async (key) => {
     setLoadingMonth(true);
-    const data = await safeGet(`entries:${key}`);
-    setMonthEntries(data || []);
+    const r = await safeGetResult(`entries:${key}`);
+    // A failed read must never blank a list we already have for this month (e.g. when the network drops).
+    if (r.ok) { loadedMonthRef.current = key; setMonthEntries(r.data || []); }
+    else if (loadedMonthRef.current !== key) setMonthEntries([]);
     setLoadingMonth(false);
   }, []);
 
@@ -563,8 +694,11 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     return window.storage.subscribe(async () => {
       refreshMonthList();
       loadUsers();
-      const data = (await safeGet(`entries:${selectedMonthRef.current}`)) || [];
-      setMonthEntries((prev) => (JSON.stringify(prev) === JSON.stringify(data) ? prev : data));
+      const mr = await safeGetResult(`entries:${selectedMonthRef.current}`);
+      if (mr.ok) {
+        const data = mr.data || [];
+        setMonthEntries((prev) => (JSON.stringify(prev) === JSON.stringify(data) ? prev : data));
+      }
       if (statsScopeRef.current === "all") {
         const months = await safeListMonths();
         const results = await Promise.all(months.map((m) => safeGet(`entries:${m}`)));
@@ -593,6 +727,78 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     }
   }, [statsScope, allEntries, allMonths, loadAll]);
 
+  // ---- Ej sparat: queue handling ----
+  const mutatePending = useCallback((fn) => {
+    const next = fn(pendingRef.current);
+    pendingRef.current = next;
+    storePending(next);
+    setPending(next);
+  }, []);
+  const syncProtection = useCallback(() => {
+    setProtection((window.storage && window.storage.etagMode) || null);
+  }, []);
+  const refreshViewRef = React.useRef(() => {});
+  refreshViewRef.current = async () => {
+    refreshMonthList();
+    loadUsers();
+    const r = await safeGetResult(`entries:${selectedMonthRef.current}`);
+    if (r.ok) setMonthEntries(r.data || []);
+    setAllEntries(null);
+  };
+  const flushChain = React.useRef(Promise.resolve());
+  const flushing = React.useRef(false);
+  // Try to send everything in the queue, one pass at a time. Calls are chained so two retries never run at once.
+  const flush = useCallback(() => {
+    const run = async () => {
+      flushing.current = true;
+      let saved = false;
+      try {
+        for (const a0 of [...pendingRef.current]) {
+          const a = pendingRef.current.find((x) => x.qid === a0.qid);
+          if (!a) continue; // removed (deleted by the user) while we were busy
+          const r = await runAction(a, (stage) => mutatePending((l) => l.map((x) => (x.qid === a.qid ? { ...x, stage } : x))));
+          if (r.status === "ok") {
+            mutatePending((l) => l.filter((x) => x.qid !== a.qid));
+            saved = true;
+          } else {
+            mutatePending((l) => l.map((x) => (x.qid === a.qid ? { ...x, attempts: (x.attempts || 0) + 1 } : x)));
+            if (r.status === "offline") break; // no point trying the rest while unreachable
+          }
+        }
+      } finally {
+        flushing.current = false;
+        syncProtection();
+      }
+      if (saved) refreshViewRef.current();
+    };
+    flushChain.current = flushChain.current.then(run, run);
+    return flushChain.current;
+  }, [mutatePending, syncProtection]);
+
+  // Automatic retries: when the connection returns, when the app becomes visible, every 30 s, and at startup.
+  useEffect(() => {
+    const go = () => { if (pendingRef.current.length && !flushing.current) flush(); };
+    const onOnline = () => { go(); refreshViewRef.current(); };
+    const onVisible = () => { if (document.visibilityState === "visible") go(); };
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisible);
+    const timer = setInterval(go, 30000);
+    go();
+    return () => {
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(timer);
+    };
+  }, [flush]);
+  // Learn early whether the overwrite protection (ETag) works in this browser, for the footer line.
+  useEffect(() => {
+    if (window.storage && window.storage.getV) window.storage.getV("meta:users").then(syncProtection).catch(() => {});
+  }, [syncProtection]);
+
+  const queued = pending.filter((a) => a.attempts > 0); // shown as Ej sparat (in-flight saves are not shown)
+  const queuedIds = useMemo(() => new Set(queued.map((a) => a.entry.id)), [pending]); // eslint-disable-line
+  const maxAttempts = queued.reduce((m, a) => Math.max(m, a.attempts || 0), 0);
+
   function toggleSport(code) {
     setForm((f) => ({
       ...f,
@@ -615,6 +821,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   }
 
   function startEdit(entry) {
+    setEditingPending(null);
     setEditingId(entry.id);
     setEditingOriginalMonth(monthKeyOf(entry.date));
     setForm({
@@ -626,7 +833,25 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       kansla: entry.kansla || "",
       anteckningar: entry.anteckningar || "",
     });
-    setSaveError(false);
+    if (typeof window !== "undefined" && window.scrollTo) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
+  // Load a queued (Ej sparat) pass back into the form. Saving replaces the queued pass.
+  function startEditPending(a) {
+    setEditingId(null);
+    setEditingOriginalMonth(null);
+    setEditingPending({ qid: a.qid, entryId: a.entry.id, removeFrom: a.removeFrom || null });
+    setForm({
+      date: a.entry.date,
+      user: a.entry.user || "niva",
+      sport: a.entry.sport || [],
+      typ: a.entry.typ || [],
+      tid: a.entry.tid || "",
+      kansla: a.entry.kansla || "",
+      anteckningar: a.entry.anteckningar || "",
+    });
     if (typeof window !== "undefined" && window.scrollTo) {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
@@ -635,88 +860,79 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   function cancelEdit() {
     setEditingId(null);
     setEditingOriginalMonth(null);
+    setEditingPending(null);
     setForm((f) => ({ ...emptyForm, user: f.user }));
-    setSaveError(false);
   }
 
+  // Saving always goes: put the pass in the queue first (so it survives a closed app or a dropped
+  // connection), then try to send it. If it got through it leaves the queue; otherwise it stays as "Ej sparat".
   async function handleSave() {
-    if (!form.date || form.sport.length === 0) return;
+    if (!form.date || form.sport.length === 0 || saving) return;
     setSaving(true);
-    setSaveError(false);
-
-    if (editingId) {
-      const newMonthKey = monthKeyOf(form.date);
-      const updatedEntry = { id: editingId, ...form, cr10: true };
-      let ok = true;
-
-      if (newMonthKey === editingOriginalMonth) {
-        const existing = (await safeGet(`entries:${newMonthKey}`)) || [];
-        const replaced = existing
-          .map((e) => (e.id === editingId ? updatedEntry : e))
-          .sort((a, b) => a.date.localeCompare(b.date));
-        ok = await safeSet(`entries:${newMonthKey}`, replaced);
-        if (ok && newMonthKey === selectedMonth) setMonthEntries(replaced);
+    let qid;
+    if (editingPending) {
+      qid = editingPending.qid;
+      const entry = { id: editingPending.entryId, ...form, cr10: true };
+      if (pendingRef.current.some((a) => a.qid === qid)) {
+        mutatePending((l) => l.map((a) => (a.qid === qid ? { ...a, entry, stage: 0 } : a)));
       } else {
-        const oldEntries = (await safeGet(`entries:${editingOriginalMonth}`)) || [];
-        const oldFiltered = oldEntries.filter((e) => e.id !== editingId);
-        const okOld = await safeSet(`entries:${editingOriginalMonth}`, oldFiltered);
-
-        const newEntries = (await safeGet(`entries:${newMonthKey}`)) || [];
-        const newUpdated = [...newEntries, updatedEntry].sort((a, b) => a.date.localeCompare(b.date));
-        const okNew = await safeSet(`entries:${newMonthKey}`, newUpdated);
-
-        ok = okOld && okNew;
-        if (ok) {
-          if (editingOriginalMonth === selectedMonth) setMonthEntries(oldFiltered);
-          if (newMonthKey === selectedMonth) setMonthEntries(newUpdated);
-          if (!allMonths.includes(newMonthKey)) {
-            setAllMonths([...allMonths, newMonthKey].sort());
-          }
-        }
+        // it was sent in the meantime: send the edited version, same id so it replaces the saved one
+        qid = "q" + uid();
+        mutatePending((l) => [...l, { qid, entry, removeFrom: editingPending.removeFrom, stage: 0, attempts: 0, queuedAt: Date.now() }]);
       }
-
-      if (ok) {
-        setAllEntries(null);
-        setEditingId(null);
-        setEditingOriginalMonth(null);
-        setForm((f) => ({ ...emptyForm, user: f.user }));
-        setSavedFlash(true);
-        setTimeout(() => setSavedFlash(false), 1800);
-      } else {
-        setSaveError(true);
-      }
-      setSaving(false);
-      return;
-    }
-
-    const key = monthKeyOf(form.date);
-    const existing = (await safeGet(`entries:${key}`)) || [];
-    const entry = { id: uid(), ...form, cr10: true };
-    const updated = [...existing, entry].sort((a, b) => a.date.localeCompare(b.date));
-    const ok = await safeSet(`entries:${key}`, updated);
-    if (ok) {
-      if (key === selectedMonth) setMonthEntries(updated);
-      if (!allMonths.includes(key)) {
-        const next = [...allMonths, key].sort();
-        setAllMonths(next);
-      }
-      setAllEntries(null);
-      setForm((f) => ({ ...emptyForm, user: f.user }));
-      setSavedFlash(true);
-      setTimeout(() => setSavedFlash(false), 1800);
     } else {
-      setSaveError(true);
+      const id = editingId || uid();
+      const entry = { id, ...form, cr10: true };
+      const removeFrom = editingId && editingOriginalMonth && editingOriginalMonth !== monthKeyOf(form.date) ? editingOriginalMonth : null;
+      qid = "q" + uid();
+      mutatePending((l) => [...l, { qid, entry, removeFrom, stage: 0, attempts: 0, queuedAt: Date.now() }]);
     }
+    await flush();
+    const left = pendingRef.current.find((a) => a.qid === qid);
+    if (left && !left.attempts) mutatePending((l) => l.map((a) => (a.qid === qid ? { ...a, attempts: 1 } : a)));
+    setEditingId(null);
+    setEditingOriginalMonth(null);
+    setEditingPending(null);
+    setForm((f) => ({ ...emptyForm, user: f.user }));
+    setSavedFlash(left ? "queued" : "ok");
+    setTimeout(() => setSavedFlash(false), left ? 3200 : 1800);
     setSaving(false);
   }
 
-  async function deleteEntry(id) {
-    const updated = monthEntries.filter((e) => e.id !== id);
-    const ok = await safeSet(`entries:${selectedMonth}`, updated);
-    if (ok) {
-      setMonthEntries(updated);
+  async function retryPending(qid) {
+    setRetryingQid(qid);
+    await flush();
+    setRetryingQid(null);
+  }
+
+  function askDelete(e) { setConfirmError(null); setConfirmDlg({ kind: "saved", entry: e }); }
+  function askDeletePending(a) { setConfirmError(null); setConfirmDlg({ kind: "pending", qid: a.qid }); }
+  function closeConfirm() { if (!confirmBusy) { setConfirmDlg(null); setConfirmError(null); } }
+  async function doConfirm() {
+    const d = confirmDlg;
+    if (!d) return;
+    if (d.kind === "pending") {
+      mutatePending((l) => l.filter((a) => a.qid !== d.qid));
+      if (editingPending && editingPending.qid === d.qid) cancelEdit();
+      setConfirmDlg(null);
+      return;
+    }
+    if (d.kind === "disconnect") { onDisconnect(); return; }
+    // Deleting an already saved pass needs a connection; no queueing for this in 1.5.0.
+    setConfirmBusy(true);
+    setConfirmError(null);
+    const id = d.entry.id;
+    const key = monthKeyOf(d.entry.date);
+    const r = await saveMonth(key, (list) => (list.some((e) => e.id === id) ? list.filter((e) => e.id !== id) : NO_CHANGE));
+    syncProtection();
+    setConfirmBusy(false);
+    if (r.status === "ok") {
+      if (key === selectedMonthRef.current) setMonthEntries(r.value);
       setAllEntries(null);
       if (editingId === id) cancelEdit();
+      setConfirmDlg(null);
+    } else {
+      setConfirmError("Kunde inte ta bort, försök igen.");
     }
   }
 
@@ -729,9 +945,15 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     setExporting(true);
     try {
       const months = allMonths.length ? allMonths : await safeListMonths();
-      const results = await Promise.all(months.map((m) => safeGet(`entries:${m}`)));
+      const results = await Promise.all(months.map((m) => safeGetResult(`entries:${m}`)));
+      if (results.some((r) => !r.ok)) {
+        // never hand out a backup that silently misses months
+        setImportMsg({ ok: false, text: "Exporten avbröts: kunde inte hämta alla månader. Försök igen." });
+        setExporting(false);
+        return;
+      }
       const merged = [];
-      results.forEach((r) => { if (r) merged.push(...r); });
+      results.forEach((r) => { if (r.data) merged.push(...r.data); });
       merged.sort((a, b) => a.date.localeCompare(b.date));
 
       const header = ["Datum", "Anvandare", "Sport", "Traningstyp", "Tid (min)", "Anstrangning (1-10)", "Anteckningar"];
@@ -852,19 +1074,26 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         count++;
       }
 
-      for (const mk of Object.keys(byMonth)) {
-        const existing = (await safeGet(`entries:${mk}`)) || [];
+      let failedMonths = 0;
+      const monthKeys = Object.keys(byMonth);
+      for (const mk of monthKeys) {
         const sig = (e) => [e.date, e.user, (e.sport||[]).join(","), (e.typ||[]).join(","), e.tid, e.kansla, e.anteckningar].join("|");
-        const existingSigs = new Set(existing.map(sig));
-        const toAdd = byMonth[mk].filter((e) => !existingSigs.has(sig(e)));
-        const merged = [...existing, ...toAdd].sort((a, b) => a.date.localeCompare(b.date));
-        await safeSet(`entries:${mk}`, merged);
+        // the merge runs on the latest data of that month (see saveKey), so nothing saved meanwhile is overwritten
+        const r = await saveMonth(mk, (existing) => {
+          const existingSigs = new Set(existing.map(sig));
+          const toAdd = byMonth[mk].filter((e) => !existingSigs.has(sig(e)));
+          return toAdd.length ? [...existing, ...toAdd].sort(byDate) : NO_CHANGE;
+        });
+        if (r.status !== "ok") failedMonths++;
       }
+      syncProtection();
 
       await refreshMonthList();
       await loadMonth(selectedMonth);
       setAllEntries(null);
-      setImportMsg({ ok: true, text: `${count} pass importerade.` });
+      setImportMsg(failedMonths
+        ? { ok: false, text: `Importen blev inte klar: ${failedMonths} av ${monthKeys.length} månader kunde inte sparas. Försök igen, redan importerade pass dubbleras inte.` }
+        : { ok: true, text: `${count} pass importerade.` });
     } catch (e) {
       console.error("import failed", e);
       setImportMsg({ ok: false, text: "Kunde inte läsa filen. Kontrollera att det är en CSV exporterad härifrån." });
@@ -923,9 +1152,9 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
 
   const sortedMonthEntries = useMemo(
     () => monthEntries
-      .filter((e) => (e.user || "niva") === form.user)
+      .filter((e) => (e.user || "niva") === form.user && !queuedIds.has(e.id))
       .sort((a, b) => b.date.localeCompare(a.date)),
-    [monthEntries, form.user]
+    [monthEntries, form.user, queuedIds]
   );
 
   const canSave = form.date && form.sport.length > 0 && !saving;
@@ -1004,14 +1233,36 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
           </button>
         </div>
 
+        {queued.length > 0 && (
+          <div role="status" className="rounded-lg p-3 mb-4 flex items-start gap-2 text-sm"
+               style={maxAttempts >= 3
+                 ? { backgroundColor: "#FDECEA", border: "1px solid #D98880", color: "#7A1F14" }
+                 : { backgroundColor: "#FFFBEA", border: "1px solid #E6C84F", color: "#5C4A00" }}>
+            <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+            <div>
+              {maxAttempts >= 3 ? (
+                <>
+                  <div className="font-bold">{queued.length === 1 ? "1 pass väntar på att sparas" : `${queued.length} pass väntar på att sparas`}</div>
+                  Det går inte att spara just nu. Passen ligger kvar på den här telefonen men syns inte för andra. Rensa inte webbläsardata förrän de är sparade.
+                </>
+              ) : (
+                <>
+                  <div className="font-bold">{queued.length === 1 ? "1 pass väntar på att sparas" : `${queued.length} pass väntar på att sparas`}</div>
+                  Försöker igen automatiskt.
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
         {view === "logga" && (
           <div className="space-y-5">
             <Card>
-              {editingId && (
+              {(editingId || editingPending) && (
                 <div className="flex items-center justify-between mb-4 pb-3 border-b"
                      style={{ borderColor: "#E4E4E4" }}>
                   <div className="flex items-center gap-1.5 text-xs font-bold" style={{ color: ACCENT_DARK }}>
-                    <Pencil size={13} /> Redigerar loggat pass
+                    <Pencil size={13} /> {editingPending ? "Redigerar osparat pass" : "Redigerar loggat pass"}
                   </div>
                   <button
                     onClick={cancelEdit}
@@ -1140,17 +1391,14 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 className="w-full py-2.5 rounded-lg text-sm font-bold text-white transition-opacity flex items-center justify-center gap-2"
                 style={{ backgroundColor: ACCENT, opacity: canSave ? 1 : 0.45 }}
               >
-                {savedFlash ? (<><Check size={16} /> Sparat</>) : editingId ? "Spara ändringar" : "Spara pass"}
+                {saving ? (<><Loader2 size={16} className="animate-spin" /> Sparar…</>)
+                  : savedFlash === "queued" ? (<><AlertTriangle size={16} /> Ej sparat, försöker igen</>)
+                  : savedFlash ? (<><Check size={16} /> Sparat</>)
+                  : (editingId || editingPending) ? "Spara ändringar" : "Spara pass"}
               </button>
               {form.sport.length === 0 && (
                 <p className="text-xs mt-2" style={{ color: MUTED }}>
                   Välj minst en aktivitet för att spara.
-                </p>
-              )}
-              {saveError && (
-                <p className="text-xs mt-2 font-semibold" style={{ color: "#B5544A" }}>
-                  Kunde inte spara. Det här funkar bara på den publicerade länken, inte i
-                  förhandsvisningen här i chatten — testa via den riktiga länken.
                 </p>
               )}
             </Card>
@@ -1174,6 +1422,46 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                   </select>
                 </span>
               </div>
+              {queued.length > 0 && (
+                <div className="space-y-2 mb-3">
+                  {queued.map((a) => (
+                    <div key={a.qid} data-testid="pending-card" className="rounded-lg p-3 text-sm"
+                         style={{ border: "1.5px dashed #C9A227", backgroundColor: "#FFFBEA" }}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ backgroundColor: "#F6D860", color: "#5C4A00" }}>Ej sparat</span>
+                        <span className="font-semibold">{userName(a.entry.user || "niva")}</span>
+                      </div>
+                      <div style={{ color: INK }}>{entryLine(a.entry)}</div>
+                      {a.stage === 1 && (
+                        <p className="text-xs mt-1" style={{ color: "#5C4A00" }}>
+                          Passet är sparat i den nya månaden men finns kvar i den gamla tills flytten är klar.
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        <button type="button" onClick={() => retryPending(a.qid)} disabled={retryingQid === a.qid}
+                                className="flex items-center gap-1.5 px-3 rounded-lg text-xs font-bold border"
+                                style={{ minHeight: 40, borderColor: ACCENT, color: ACCENT_DARK, backgroundColor: "white" }}>
+                          {retryingQid === a.qid ? <Loader2 size={13} className="animate-spin" /> : <RotateCw size={13} />} Spara igen
+                        </button>
+                        {a.stage !== 1 && (
+                          <>
+                            <button type="button" onClick={() => startEditPending(a)}
+                                    className="flex items-center gap-1.5 px-3 rounded-lg text-xs font-semibold border"
+                                    style={{ minHeight: 40, borderColor: "#D5D5D5", color: "#444444", backgroundColor: "white" }}>
+                              <Pencil size={13} /> Redigera
+                            </button>
+                            <button type="button" onClick={() => askDeletePending(a)}
+                                    className="flex items-center gap-1.5 px-3 rounded-lg text-xs font-semibold border"
+                                    style={{ minHeight: 40, borderColor: "#D5D5D5", color: "#B5544A", backgroundColor: "white" }}>
+                              <Trash2 size={13} /> Radera
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {loadingMonth ? (
                 <p className="text-sm" style={{ color: MUTED }}>Laddar…</p>
               ) : sortedMonthEntries.length === 0 ? (
@@ -1224,7 +1512,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                               <Pencil size={14} style={{ color: MUTED }} />
                             </button>
                             <button
-                              onClick={(ev) => { ev.stopPropagation(); deleteEntry(e.id); }}
+                              onClick={(ev) => { ev.stopPropagation(); askDelete(e); }}
                               className="p-1 rounded hover:bg-gray-100"
                               title="Ta bort"
                             >
@@ -1402,6 +1690,21 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         )}
 
         {showChangelog && <ChangelogModal onClose={() => setShowChangelog(false)} />}
+        {confirmDlg && confirmDlg.kind === "saved" && (
+          <ConfirmModal title="Ta bort passet?" text={`${userName(confirmDlg.entry.user || "niva")} · ${entryLine(confirmDlg.entry)}. Det här går inte att ångra.`}
+                        confirmLabel="Ta bort" busy={confirmBusy} error={confirmError} onConfirm={doConfirm} onCancel={closeConfirm} />
+        )}
+        {confirmDlg && confirmDlg.kind === "pending" && (
+          <ConfirmModal title="Ta bort det osparade passet?" text="Det finns inte på någon annan enhet."
+                        confirmLabel="Ta bort" busy={false} error={null} onConfirm={doConfirm} onCancel={closeConfirm} />
+        )}
+        {confirmDlg && confirmDlg.kind === "disconnect" && (
+          <ConfirmModal title="Koppla bort den här enheten?"
+                        text={queued.length > 0
+                          ? `Datan finns kvar i molnet, men ${queued.length === 1 ? "1 osparat pass" : `${queued.length} osparade pass`} på den här telefonen försvinner.`
+                          : "Datan finns kvar i molnet."}
+                        confirmLabel="Koppla bort" busy={false} error={null} onConfirm={doConfirm} onCancel={closeConfirm} />
+        )}
         {showUsers && (
           <UserManager users={users} localHidden={localHidden} onLocalHide={setLocalHiddenIds} onUpdate={updateUsers} onClose={() => setShowUsers(false)} />
         )}
@@ -1409,6 +1712,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         <p className="text-xs text-center mt-8" style={{ color: "#B5B5B5" }}>
           Live-delad: ändringar syns direkt hos alla som har samma delningslänk.<br />Version {APP_VERSION} · {APP_DATE} ·{" "}
           <button type="button" className="underline" style={{ color: ACCENT_DARK }} onClick={() => setShowChangelog(true)}>Vad är nytt?</button>
+          {protection && (<><br /><span data-testid="protection">Skydd mot överskrivning: {protection === "on" ? "på" : "begränsat"}</span></>)}
         </p>
 
         {connLink && (
@@ -1430,7 +1734,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
               >
                 {linkCopied ? "Länk kopierad – skicka till rätt person" : "Kopiera kopplingslänk till annan enhet"}
               </button>
-              <button type="button" className="text-xs underline" style={{ color: "#999" }} onClick={onDisconnect}>
+              <button type="button" className="text-xs underline" style={{ color: "#999" }} onClick={() => { setConfirmError(null); setConfirmDlg({ kind: "disconnect" }); }}>
                 Koppla bort enheten
               </button>
             </div>
