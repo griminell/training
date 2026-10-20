@@ -1,5 +1,10 @@
 # Changelog / Ändringslogg
 
+## 1.6.2 – 2026-10-20
+
+- Nya aktiviteter: Handboll (efter Fotboll), Yoga och Pilates (före Annat)
+- Ny träningstyp: Stretching
+
 ## 1.6.1 – 2026-10-20
 
 - Ny sidfot: © 2026 Grim till vänster, versionsnummer och Vad är nytt? till höger. Skydd mot överskrivning står på egen rad

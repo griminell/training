@@ -111,8 +111,8 @@ with sync_playwright() as pw:
         ctxG, G = open_app(browser, port, "grim")
         G.locator("[data-testid=sport-group-more]").click()
         order = G.locator("[data-testid=sport-group] button[aria-pressed]").all_inner_texts()
-        check("5 New user: defaults (in default order) first, then Rullskidor, Alpint, Promenad, Cykel, Pingis, Annat",
-              order == ["Skidor", "Fotboll", "Löpning", "Rullskidor", "Alpint", "Promenad", "Cykel", "Pingis", "Annat"], str(order))
+        check("5 New user: defaults (in default order) first, then Rullskidor, Alpint, Handboll, Promenad, Cykel, Pingis, Yoga, Pilates, Annat",
+              order == ["Skidor", "Fotboll", "Löpning", "Rullskidor", "Alpint", "Handboll", "Promenad", "Cykel", "Pingis", "Yoga", "Pilates", "Annat"], str(order))
         G.screenshot(path=str(SHOTS / "5_aktiviteter.png"), full_page=True)
         ctxG.close()
         P.locator("[data-testid=sport-group-more]").click()
@@ -154,7 +154,7 @@ with sync_playwright() as pw:
         st = re.sub(r"\s+", " ", P.locator("[data-testid=offday-stats]").inner_text())
         check("6 Statistics still count the hidden days", st == "Vilodagar 1 · Sjukdagar 1", st)
         dots = P.evaluate("[...document.querySelectorAll('span.rounded-full.inline-block.h-2\\\\.5')].map(e => e.style.backgroundColor)")
-        check("6 Activity chart: 9 activities have 9 different colours", len(dots) == 9 and len(set(dots)) == 9, str(dots))
+        check("6 Activity chart: 12 activities have 12 different colours", len(dots) == 12 and len(set(dots)) == 12, str(dots))
         P.screenshot(path=str(SHOTS / "6_statistik.png"), full_page=True)
         P.get_by_role("button", name="Logga pass").click(); P.wait_for_timeout(300)
         # queued rest day stays visible although rest/sick days are hidden
