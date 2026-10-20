@@ -16,7 +16,7 @@ with sync_playwright() as pw:
         ctx, P = open_app(browser, port, "niva", "light", "light")
         P.locator("[data-testid=sport-group-more]").click(); P.locator("[data-testid=typ-group-more]").click(); P.wait_for_timeout(200)
         sp = pills(P, "sport-group"); ty = pills(P, "typ-group")
-        check("1 Activities in order, Handboll after Fotboll, Yoga and Pilates before Annat", sp[-3:] == ["Yoga", "Pilates", "Annat"] and sp.index("Handboll") == sp.index("Fotboll") + 1 and len(sp) == 12, str(sp))
+        check("1 Activities in order, Handboll after Fotboll, Yoga and Pilates before Annat, Barmarksträning before Pingis", sp[-3:] == ["Yoga", "Pilates", "Annat"] and sp.index("Handboll") == sp.index("Fotboll") + 1 and sp.index("Barmarksträning") == sp.index("Pingis") - 1 and len(sp) == 13, str(sp))
         check("1 Training type Stretching exists (11 types)", "Stretching" in ty and len(ty) == 11, str(ty))
         # Log one pass with the new activities and type
         for a in ("Handboll", "Yoga", "Pilates"): P.locator("[data-testid=sport-group] button[aria-pressed]", has_text=re.compile(f"^{a}$")).click()
@@ -33,14 +33,14 @@ with sync_playwright() as pw:
         tab(P, "Statistik"); P.wait_for_timeout(700)
         dots = P.evaluate("[...document.querySelectorAll('span.rounded-full.inline-block.h-2\\\\.5')].map(e => e.style.backgroundColor)")
         legend = P.locator("body").inner_text()
-        check("3 Legend has Handboll, Yoga and Pilates with their own colours", all(w in legend for w in ("Handboll (1)", "Yoga (1)", "Pilates (1)")) and len(set(dots)) == len(dots) and len(dots) >= 12, f"{len(dots)} {len(set(dots))}")
+        check("3 Legend has Handboll, Yoga and Pilates with their own colours", all(w in legend for w in ("Handboll (1)", "Yoga (1)", "Pilates (1)")) and len(set(dots)) == len(dots) and len(dots) >= 13, f"{len(dots)} {len(set(dots))}")
         check("3 Type chart shows Stretching", "SR" in P.locator(".recharts-wrapper").last.inner_text() or "SR" in P.locator("body").inner_text())
         P.screenshot(path=str(SHOTS / "statistik_ljust.png"), full_page=True)
         # Dark mode: all 12 chart colours visible
         open_menu(P); menu(P).locator("[data-testid=theme-dark]").click(); close_menu(P); P.wait_for_timeout(500)
         dd = P.evaluate("[...document.querySelectorAll('span.rounded-full.inline-block.h-2\\\\.5')].map(e => e.style.backgroundColor)")
         weak = [d for d in set(to_hex(x) for x in dd) if cr(d, "#1C1C1C") < 3]
-        check("3 Dark: 12 distinct activity colours, all visible (>= 3)", len(set(dd)) == len(dd) and len(dd) >= 12 and not weak, f"{len(dd)} {weak}")
+        check("3 Dark: 13 distinct activity colours, all visible (>= 3)", len(set(dd)) == len(dd) and len(dd) >= 13 and not weak, f"{len(dd)} {weak}")
         fills = [to_hex(x) for x in chart_fills(P) if x and x != 'none']
         check("3 Dark: all chart colours visible (>= 3)", not [f for f in set(fills) if cr(f, '#1C1C1C') < 3], str([f for f in set(fills) if cr(f, '#1C1C1C') < 3]))
         P.screenshot(path=str(SHOTS / "statistik_morkt.png"), full_page=True)

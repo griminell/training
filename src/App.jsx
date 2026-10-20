@@ -5,10 +5,12 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun } from "lucide-react";
 
-export const APP_VERSION = "1.6.2";
+export const APP_VERSION = "1.6.3";
 export const APP_DATE = "2026-10-20";
 
 const CHANGELOG = [
+  { version: "1.6.3", date: "2026-10-20", items: [
+    "Ny aktivitet: Barmarksträning (före Pingis)" ] },
   { version: "1.6.2", date: "2026-10-20", items: [
     "Nya aktiviteter: Handboll (efter Fotboll), Yoga och Pilates (före Annat)",
     "Ny träningstyp: Stretching" ] },
@@ -309,7 +311,9 @@ function applyTheme(user, dark) {
   // 6 base shades + 3 more from the user's own colour, so no two activities share a colour
   SPORT_COLORS = [...t.sports, mixHex(t.sports[0], "#FFFFFF", 0.25), mixHex(t.sports[0], "#000000", dark ? 0.08 : 0.2), mixHex(t.sports[0], "#FFFFFF", 0.6),
     // slots 9-11 (Handboll, Yoga, Pilates)
-    mixHex(t.sports[0], dark ? "#FFFFFF" : "#000000", dark ? 0.85 : 0.65), mixHex(t.sports[0], "#FFFFFF", dark ? 0.12 : 0.12), mixHex(t.sports[0], dark ? "#000000" : "#FFFFFF", dark ? 0.15 : 0.35)];
+    mixHex(t.sports[0], dark ? "#FFFFFF" : "#000000", dark ? 0.85 : 0.65), mixHex(t.sports[0], "#FFFFFF", dark ? 0.12 : 0.12), mixHex(t.sports[0], dark ? "#000000" : "#FFFFFF", dark ? 0.15 : 0.35),
+    // slot 12 (Barmarksträning)
+    mixHex(t.sports[0], dark ? "#FFFFFF" : "#000000", dark ? 0.35 : 0.3)];
   // 11th training type needs an 11th shade
   TYPE_PALETTE = [...t.types, mixHex(t.types[2], dark ? "#FFFFFF" : "#000000", dark ? 0.8 : 0.7)];
 }
@@ -346,13 +350,14 @@ const SPORTS = [
   { code: "LÖ", label: "Löpning" },
   { code: "PR", label: "Promenad" },
   { code: "CY", label: "Cykel" },
+  { code: "BA", label: "Barmarksträning" },
   { code: "PI", label: "Pingis" },
   { code: "YO", label: "Yoga" },
   { code: "PL", label: "Pilates" },
   { code: "A", label: "Annat" },
 ];
 // Stable colour slot per activity in the distribution chart (existing activities keep their colours).
-const SPORT_COLOR_SLOT = { F: 0, S: 1, "LÖ": 2, AL: 3, PI: 4, PR: 5, CY: 6, RU: 7, A: 8, H: 9, YO: 10, PL: 11 };
+const SPORT_COLOR_SLOT = { F: 0, S: 1, "LÖ": 2, AL: 3, PI: 4, PR: 5, CY: 6, RU: 7, A: 8, H: 9, YO: 10, PL: 11, BA: 12 };
 const sportColor = (code) => SPORT_COLORS[(SPORT_COLOR_SLOT[code] ?? 0) % SPORT_COLORS.length];
 
 const TYPES = [

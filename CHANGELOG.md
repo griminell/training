@@ -1,5 +1,9 @@
 # Changelog / Ändringslogg
 
+## 1.6.3 – 2026-10-20
+
+- Ny aktivitet: Barmarksträning (före Pingis)
+
 ## 1.6.2 – 2026-10-20
 
 - Nya aktiviteter: Handboll (efter Fotboll), Yoga och Pilates (före Annat)

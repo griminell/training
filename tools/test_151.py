@@ -101,19 +101,19 @@ with sync_playwright() as pw:
 
         # 1. Most used, last 30 days only, per user
         check("1 Niva sports: 3 most used first (older passes ignored)", pills(P, "sport-group") == ["Löpning", "Promenad", "Skidor"], str(pills(P, "sport-group")))
-        check("1 Niva sports: 'Fler (9)'", more(P, "sport-group") == "Fler (9)", str(more(P, "sport-group")))
+        check("1 Niva sports: 'Fler (10)'", more(P, "sport-group") == "Fler (10)", str(more(P, "sport-group")))
         check("1 Niva types: Styrka, Intervall, Teknik", pills(P, "typ-group") == ["Styrka", "Intervall", "Teknik"], str(pills(P, "typ-group")))
         check("1 Niva types: 'Fler (8)'", more(P, "typ-group") == "Fler (8)", str(more(P, "typ-group")))
         P.screenshot(path=str(SHOTS / "1_niva_forst.png"), full_page=True)
 
         # 2. Fler / Färre, selected hidden choice stays visible
         P.locator("[data-testid=sport-group-more]").click()
-        check("2 Fler shows all 12 sports + Färre", len(pills(P, "sport-group")) == 12 and more(P, "sport-group") == "Färre", str(pills(P, "sport-group")))
+        check("2 Fler shows all 13 sports + Färre", len(pills(P, "sport-group")) == 13 and more(P, "sport-group") == "Färre", str(pills(P, "sport-group")))
         P.screenshot(path=str(SHOTS / "2_fler_utfallt.png"), full_page=True)
         P.locator("[data-testid=sport-group] button[aria-pressed]", has_text=re.compile("^Alpint$")).click()
         P.locator("[data-testid=sport-group-more]").click()   # Färre
         check("2 Selected hidden choice (Alpint) stays visible after Färre", pills(P, "sport-group") == ["Löpning", "Promenad", "Skidor", "Alpint"] and pressed(P, "sport-group") == ["Alpint"], str(pills(P, "sport-group")))
-        check("2 'Fler (8)' counts only the still hidden", more(P, "sport-group") == "Fler (8)", str(more(P, "sport-group")))
+        check("2 'Fler (9)' counts only the still hidden", more(P, "sport-group") == "Fler (9)", str(more(P, "sport-group")))
         P.locator("[data-testid=sport-group] button[aria-pressed]", has_text=re.compile("^Alpint$")).click()  # deselect again
         check("2 Deselected: back to the top 3", pills(P, "sport-group") == ["Löpning", "Promenad", "Skidor"])
 
