@@ -131,8 +131,8 @@ with sync_playwright() as pw:
 
         # ---- 7b. Credit line (1.5.6) ----
         cr = P.locator("[data-testid=credit]"); upd = P.get_by_role("button", name="Uppdatera sidan").bounding_box(); crb = cr.bounding_box()
-        check("7b (1.5.6) Credit line '© 2026 Grim • Bastubacken' sits centred below 'Uppdatera sidan'",
-              cr.inner_text().strip() == "© 2026 Grim • Bastubacken" and crb["y"] >= upd["y"] + upd["height"] + 10 and abs((crb["x"] + crb["width"] / 2) - 195) < 6, f"{cr.inner_text()!r} {crb} {upd}")
+        check("7b (1.6.1) Credit '© 2026 Grim' sits left in the footer row, below 'Uppdatera sidan'",
+              cr.inner_text().strip() == "© 2026 Grim" and crb["y"] >= upd["y"] + upd["height"] + 10 and crb["x"] < 40, f"{cr.inner_text()!r} {crb} {upd}")
         P.screenshot(path=str(SHOTS / "7b_credit.png"), full_page=True)
 
         # ---- 8. Statistics view ----

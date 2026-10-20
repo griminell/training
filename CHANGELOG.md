@@ -1,5 +1,10 @@
 # Changelog / Ändringslogg
 
+## 1.6.1 – 2026-10-20
+
+- Ny sidfot: © 2026 Grim till vänster, versionsnummer och Vad är nytt? till höger. Skydd mot överskrivning står på egen rad
+- Vad är nytt är nu ihopfällbart per version (1.6, 1.5 osv.). Den senaste visas öppen, äldre är hopfällda. Datumet står vid varje version
+
 ## 1.6.0 – 2026-10-20
 
 - Mörkt läge: välj Auto, Ljust eller Mörkt under Utseende i personmenyn. Auto följer telefonens inställning. Valet sparas på enheten

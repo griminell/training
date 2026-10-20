@@ -5,10 +5,13 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun } from "lucide-react";
 
-export const APP_VERSION = "1.6.0";
+export const APP_VERSION = "1.6.1";
 export const APP_DATE = "2026-10-20";
 
 const CHANGELOG = [
+  { version: "1.6.1", date: "2026-10-20", items: [
+    "Ny sidfot: © 2026 Grim till vänster, versionsnummer och Vad är nytt? till höger. Skydd mot överskrivning står på egen rad",
+    "Vad är nytt är nu ihopfällbart per version (1.6, 1.5 osv.). Den senaste visas öppen, äldre är hopfällda. Datumet står vid varje version" ] },
   { version: "1.6.0", date: "2026-10-20", items: [
     "Mörkt läge: välj Auto, Ljust eller Mörkt under Utseende i personmenyn. Auto följer telefonens inställning. Valet sparas på enheten",
     "Mörk bakgrund och kort i mörkgrått, din färg ljusas upp automatiskt så att den är lätt att läsa",
@@ -90,7 +93,21 @@ const CHANGELOG = [
     "Logga pass, anteckningar, redigering, export och import, statistik" ] },
 ];
 
+// Release notes grouped by minor version (1.6, 1.5, ...). The newest group is open, older ones are collapsed.
+function groupChangelog(list) {
+  const groups = [];
+  list.forEach((c) => {
+    const key = c.version.split(".").slice(0, 2).join(".");
+    let g = groups[groups.length - 1];
+    if (!g || g.key !== key) { g = { key, entries: [] }; groups.push(g); }
+    g.entries.push(c);
+  });
+  return groups;
+}
 function ChangelogModal({ onClose }) {
+  const groups = useMemo(() => groupChangelog(CHANGELOG), []);
+  const [open, setOpen] = useState(() => new Set([groups[0].key]));
+  const toggle = (k) => setOpen((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.4)" }}
          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -100,16 +117,36 @@ function ChangelogModal({ onClose }) {
           <h2 className="text-lg font-bold" style={{ color: INK }}>Vad är nytt</h2>
           <button type="button" onClick={onClose} aria-label="Stäng" className="p-1"><X size={20} /></button>
         </div>
-        {CHANGELOG.map((c) => (
-          <div key={c.version} className="mb-4">
-            <div className="text-sm font-bold" style={{ color: ACCENT_DARK }}>
-              Version {c.version} <span className="font-normal" style={{ color: MUTED }}>· {c.date}</span>
+        {groups.map((g, gi) => {
+          const isOpen = open.has(g.key);
+          const first = g.entries[g.entries.length - 1].version, last = g.entries[0].version;
+          return (
+            <div key={g.key} data-testid={`cl-group-${g.key}`} className="border-t" style={{ borderColor: LINE }}>
+              <button type="button" onClick={() => toggle(g.key)} aria-expanded={isOpen} data-testid={`cl-toggle-${g.key}`}
+                      className="w-full flex items-center gap-2 text-left" style={{ minHeight: 48 }}>
+                <ChevronDown size={18} style={{ color: MUTED, transform: isOpen ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />
+                <span className="text-base font-bold flex-1" style={{ color: gi === 0 ? ACCENT_DARK : INK }}>
+                  Version {g.key}
+                </span>
+                <span className="text-xs" style={{ color: MUTED }}>{first === last ? first : `${first} – ${last}`}</span>
+              </button>
+              {isOpen && (
+                <div className="pb-2" data-testid={`cl-body-${g.key}`}>
+                  {g.entries.map((c) => (
+                    <div key={c.version} className="mb-3 pl-6">
+                      <div className="text-sm font-bold" style={{ color: ACCENT_DARK }}>
+                        Version {c.version} <span className="font-normal" style={{ color: MUTED }}>· {c.date}</span>
+                      </div>
+                      <ul className="list-disc pl-5 mt-1 text-sm" style={{ color: INK }}>
+                        {c.items.map((it, i) => <li key={i}>{it}</li>)}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <ul className="list-disc pl-5 mt-1 text-sm" style={{ color: INK }}>
-              {c.items.map((it, i) => <li key={i}>{it}</li>)}
-            </ul>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -2157,14 +2194,13 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
           <UserManager users={users} localHidden={localHidden} onLocalHide={setLocalHiddenIds} onUpdate={updateUsers} onClose={() => setShowUsers(false)} />
         )}
 
-        <p className="text-xs text-center mt-8" style={{ color: FAINT }}>
-          Live-delad: ändringar syns direkt hos alla som har samma delningslänk.<br />Version {APP_VERSION} · {APP_DATE} ·{" "}
-          <button type="button" className="underline" style={{ color: ACCENT_DARK }} onClick={() => setShowChangelog(true)}>Vad är nytt?</button>
+        <p className="text-xs text-center mt-8" style={{ color: FAINT }} data-testid="footer-info">
+          Live-delad med alla som har samma länk.
           {protection && (<><br /><span data-testid="protection">Skydd mot överskrivning: {protection === "on" ? "på" : "begränsat"}</span></>)}
         </p>
 
         {connLink && (
-          <div className="text-center" style={{ marginTop: 28, paddingBottom: "max(2.5rem, calc(env(safe-area-inset-bottom) + 1.5rem))" }}>
+          <div className="text-center" style={{ marginTop: 24 }}>
             <button
               type="button"
               onClick={() => { location.replace(location.pathname + "?v=" + Date.now()); }}
@@ -2173,9 +2209,19 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
             >
               Uppdatera sidan
             </button>
-            <p className="text-xs" data-testid="credit" style={{ color: FAINT, marginTop: 22 }}>© 2026 Grim • Bastubacken</p>
           </div>
         )}
+
+        {/* Footer row: credit left, version + release notes right (usual convention) */}
+        <div className="flex items-center justify-between gap-3 text-xs" data-testid="footer-row"
+             style={{ color: FAINT, marginTop: 24, paddingBottom: "max(2.5rem, calc(env(safe-area-inset-bottom) + 1.5rem))" }}>
+          <span data-testid="credit">© 2026 Grim</span>
+          <span className="flex items-center gap-1 text-right">
+            <span data-testid="version">v{APP_VERSION}</span> ·
+            <button type="button" className="underline" data-testid="open-changelog"
+                    style={{ color: FAINT, minHeight: 44, paddingLeft: 4, paddingRight: 4 }} onClick={() => setShowChangelog(true)}>Vad är nytt?</button>
+          </span>
+        </div>
       </div>
     </div>
   );
