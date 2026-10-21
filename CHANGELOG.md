@@ -1,5 +1,12 @@
 # Changelog / Ändringslogg
 
+## 1.7.7 – 2026-10-22
+
+- Bredare färgpalett för aktivitet och träningstyp i Statistik och kalendern: fler färger i stället för bara nyanser av din färg. Din färg går till det du tränat mest de senaste 30 dagarna, och varje aktivitet behåller sin färg
+- Förslaget om fysio eller läkare ligger nu under diagrammet
+- Swipa åt vänster eller höger för att gå mellan Logga pass, Statistik och Historik. Det fungerar inte när du drar i ett reglage, ett diagram, ett textfält eller nära skärmkanten, och inte när en ruta eller panel är öppen
+- Förslaget om fysio eller läkare räknar nu på dina senaste loggade dagar (pass, vilodag eller sjukdag) i stället för kalenderdagar: smärta på 5 eller mer under minst 5 av de senaste 7 loggade dagarna, eller 10 av de senaste 14. Det tittar som mest 4 veckor bakåt, så gammal värk utlöser inget
+
 ## 1.7.6 – 2026-10-22
 
 - Ny ruta Smärta i Statistik: välj kroppsdel och se hur smärtan har varit dag för dag, med belastningen svagt i bakgrunden. Dagar utan notering blir ett glapp i linjen, inte en nolla

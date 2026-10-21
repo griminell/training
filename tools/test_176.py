@@ -61,7 +61,7 @@ with sync_playwright() as pw:
         check("1 Picking another body part updates numbers (Knä H)", f"Högst {max(kv)}" in st and f"Dagar med smärta {len(kv)}" in st, st)
         # hint
         hints = [h.inner_text() for h in P.locator("[data-testid=pain-hint]").all()]
-        check("2 Persistent pain hint for Häl V: 6 of the last 7 days", len(hints) == 1 and "Smärta på 5 eller mer i Häl V har noterats 6 av de senaste 7 dagarna" in hints[0] and "fysio eller läkare" in hints[0], str(hints))
+        check("2 Persistent pain hint for Häl V: 6 of the last 7 days", len(hints) == 1 and "Smärta på 5 eller mer i Häl V har noterats 6 av de senaste 7 loggade dagarna" in hints[0] and "fysio eller läkare" in hints[0], str(hints))
         check("2 No hint for knee (3 days), back (1 day) or heel right (7 days but only value 3)", not any("Knä" in h or "Rygg" in h or "Häl H" in h for h in hints))
         # periods
         set_scope(P, "Vecka")
@@ -76,7 +76,7 @@ with sync_playwright() as pw:
         tab(P, "Statistik"); P.wait_for_timeout(900)
         hints = [h.inner_text() for h in P.locator("[data-testid=pain-hint]").all()]
         check("4 A device that belongs to a non-default person (Anna) keeps her after load", "Anna" in P.locator("[data-testid=person-chip]").inner_text())
-        check("4 14-day rule (Anna): 10 of the last 14 days", len(hints) == 1 and "Smärta på 5 eller mer i Rygg nedre har noterats 10 av de senaste 14 dagarna" in hints[0], str(hints))
+        check("4 Sparse trainer (Anna trains every other day): counted on logged days, 7 of the last 7", len(hints) == 1 and "Smärta på 5 eller mer i Rygg nedre har noterats 7 av de senaste 7 loggade dagarna" in hints[0], str(hints))
         P.screenshot(path=str(SHOTS / "smarta_anna.png"), full_page=True)
         P.locator("[data-testid=stats-person], button", has_text=re.compile("^Bo$")).first.click(); P.wait_for_timeout(600)
         check("4 A person without pain: no hint, empty text", P.locator("[data-testid=pain-hint]").count() == 0 and P.locator("[data-testid=pain-trend-empty]").count() == 1)

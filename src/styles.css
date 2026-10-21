@@ -17,3 +17,9 @@ input[type=date]{min-height:2.5rem}
 @keyframes sheet-up{from{transform:translateY(100%)}to{transform:none}}
 .sheet-up{animation:sheet-up .22s ease-out}
 @media (prefers-reduced-motion:reduce){.sheet-up{animation:none}}
+
+@keyframes swipe-in-l{from{opacity:.4;transform:translateX(28px)}to{opacity:1;transform:none}}
+@keyframes swipe-in-r{from{opacity:.4;transform:translateX(-28px)}to{opacity:1;transform:none}}
+.swipe-in-l{animation:swipe-in-l .2s ease-out}
+.swipe-in-r{animation:swipe-in-r .2s ease-out}
+@media (prefers-reduced-motion:reduce){.swipe-in-l,.swipe-in-r{animation:none}}

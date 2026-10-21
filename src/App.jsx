@@ -5,10 +5,15 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun, History, Search, SlidersHorizontal } from "lucide-react";
 
-export const APP_VERSION = "1.7.6";
+export const APP_VERSION = "1.7.7";
 export const APP_DATE = "2026-10-21";
 
 const CHANGELOG = [
+  { version: "1.7.7", date: "2026-10-22", items: [
+    "Bredare färgpalett för aktivitet och träningstyp i Statistik och kalendern: fler färger i stället för bara nyanser av din färg. Din färg går till det du tränat mest de senaste 30 dagarna, och varje aktivitet behåller sin färg",
+    "Förslaget om fysio eller läkare ligger nu under diagrammet",
+    "Swipa åt vänster eller höger för att gå mellan Logga pass, Statistik och Historik. Det fungerar inte när du drar i ett reglage, ett diagram, ett textfält eller nära skärmkanten, och inte när en ruta eller panel är öppen",
+    "Förslaget om fysio eller läkare räknar nu på dina senaste loggade dagar (pass, vilodag eller sjukdag) i stället för kalenderdagar: smärta på 5 eller mer under minst 5 av de senaste 7 loggade dagarna, eller 10 av de senaste 14. Det tittar som mest 4 veckor bakåt, så gammal värk utlöser inget" ] },
   { version: "1.7.6", date: "2026-10-22", items: [
     "Ny ruta Smärta i Statistik: välj kroppsdel och se hur smärtan har varit dag för dag, med belastningen svagt i bakgrunden. Dagar utan notering blir ett glapp i linjen, inte en nolla",
     "Om smärtan är ihållande (smärta på 5 eller mer under minst 5 av de senaste 7 dagarna eller 10 av de senaste 14) visas ett lugnt förslag om att kontakta fysio eller läkare",
@@ -434,7 +439,50 @@ const SPORTS = [
 ];
 // Stable colour slot per activity in the distribution chart (existing activities keep their colours).
 const SPORT_COLOR_SLOT = { F: 0, S: 1, "LÖ": 2, AL: 3, PI: 4, PR: 5, CY: 6, RU: 7, A: 8, H: 9, YO: 10, PL: 11, BA: 12 };
-const sportColor = (code) => SPORT_COLORS[(SPORT_COLOR_SLOT[code] ?? 0) % SPORT_COLORS.length];
+// ---- Categorical palette for activities and training types ----
+// Every activity/type keeps its own colour (fixed slot). The user's own colour goes to what the person has done most
+// (last 30 days), so it stands for the biggest slice. Candidates too close to the user's colour are left out.
+const CAT_CANDIDATES = ["#1D6FA5", "#E08A00", "#2E9E6B", "#8E5BB5", "#D2504A", "#17A3B8", "#B8920A", "#E07BA7", "#7A5C3E", "#6C8E2A",
+                        "#5B6EE1", "#8A8A8A", "#7FB3D5", "#A04070", "#4F4F4F", "#C2A878", "#B5541C", "#B07AA1"];
+function fitContrast3(hex, bg) {
+  let c = rgbToHex(...hexToRgb(hex));
+  if (contrastRatio(c, bg) >= 3) return c;
+  const [h, sat, l0] = rgbToHsl(...hexToRgb(c));
+  const bgLum = contrastRatio("#FFFFFF", bg) < contrastRatio("#000000", bg); // light background -> darken
+  for (let i = 1; i <= 60; i++) {
+    c = hslToHex(h, sat, Math.max(0.05, Math.min(0.95, l0 + (bgLum ? -1 : 1) * i * 0.01)));
+    if (contrastRatio(c, bg) >= 3) return c;
+  }
+  return c;
+}
+function categoricalPalette(accent, dark) {
+  const bg = NEUTRALS[dark ? "dark" : "light"].CARD;
+  const [ar, ag, ab] = hexToRgb(accent);
+  const dist = (c) => { const [r, g, b] = hexToRgb(c); return Math.hypot(r - ar, g - ag, b - ab); };
+  const far = CAT_CANDIDATES.filter((c) => dist(c) >= 100);
+  // 13 activities need 13 different colours (12 plus the user's own): top up with the next most distant ones
+  const rest = CAT_CANDIDATES.filter((c) => dist(c) < 100).sort((a, b) => dist(b) - dist(a));
+  while (far.length < 13 && rest.length) far.push(rest.shift());
+  return far.map((c) => fitContrast3(c, bg));
+}
+let COLOR_MAP = { sport: {}, typ: {} };
+function topCode(counts) {
+  let best = null, n = 0;
+  Object.entries(counts || {}).forEach(([k, v]) => { if (v > n) { best = k; n = v; } });
+  return best;
+}
+function setColorMaps(userUsage, accent, dark) {
+  const pal = categoricalPalette(accent, dark);
+  const sport = {}, typ = {};
+  Object.keys(SPORT_COLOR_SLOT).forEach((code) => { sport[code] = pal[SPORT_COLOR_SLOT[code] % pal.length]; });
+  TYPES.forEach((t, i) => { typ[t.code] = pal[(i + 5) % pal.length]; });
+  const ts = topCode(userUsage && userUsage.sport), tt = topCode(userUsage && userUsage.typ);
+  if (ts && sport[ts]) sport[ts] = accent;
+  if (tt && typ[tt]) typ[tt] = accent;
+  COLOR_MAP = { sport, typ };
+}
+const sportColor = (code) => COLOR_MAP.sport[code] || SPORT_COLORS[(SPORT_COLOR_SLOT[code] ?? 0) % SPORT_COLORS.length];
+const typeColor = (code) => COLOR_MAP.typ[code] || TYPE_PALETTE[0];
 
 const TYPES = [
   { code: "TE", label: "Teknik" },
@@ -1246,23 +1294,29 @@ function painDayMax(entries, key) {
   }));
   return m;
 }
-// Persistent pain: pain of 5 or more on 5 of the last 7 days, or on 10 of the last 14 days.
+// Persistent pain, counted on logged days (pass, rest or sick day) and not calendar days, so someone who trains
+// three times a week is still covered: pain of 5 or more on 5 of the last 7 logged days, or on 10 of the last 14.
+// A logged day without that pain counts as pain free. Looks back 28 days at most, so old trouble does not trigger it.
 function persistentPain(entries, today) {
-  const per = {};
+  const from = addDaysIso(today, -27);
+  const days = [...new Set(entries.filter((e) => e.date >= from && e.date <= today).map((e) => e.date))].sort().reverse();
+  if (!days.length) return [];
+  const per = {}; // key -> { label, byDay: {date: max value} }
   entries.forEach((e) => (e.pain || []).forEach((q) => {
-    if (!(parseFloat(q.value) >= 5)) return;
+    if (e.date < from || e.date > today) return;
+    const v = parseFloat(q.value);
+    if (isNaN(v)) return;
     const k = histPartKey(q);
-    per[k] = per[k] || { label: painLabelOf(q), days: new Set() };
-    per[k].days.add(e.date);
+    per[k] = per[k] || { label: painLabelOf(q), byDay: {} };
+    per[k].byDay[e.date] = Math.max(per[k].byDay[e.date] === undefined ? -1 : per[k].byDay[e.date], v);
   }));
-  const from7 = addDaysIso(today, -6), from14 = addDaysIso(today, -13);
   const out = [];
   Object.values(per).forEach((x) => {
-    const days = [...x.days];
-    const n7 = days.filter((d) => d >= from7 && d <= today).length;
-    const n14 = days.filter((d) => d >= from14 && d <= today).length;
-    if (n7 >= 5) out.push({ label: x.label, n: n7, win: 7 });
-    else if (n14 >= 10) out.push({ label: x.label, n: n14, win: 14 });
+    const hits = (list) => list.filter((d) => (x.byDay[d] === undefined ? -1 : x.byDay[d]) >= 5).length;
+    const d7 = days.slice(0, 7), d14 = days.slice(0, 14);
+    const n7 = hits(d7), n14 = hits(d14);
+    if (n7 >= 5) out.push({ label: x.label, n: n7, win: d7.length >= 7 ? 7 : d7.length });
+    else if (n14 >= 10) out.push({ label: x.label, n: n14, win: d14.length >= 14 ? 14 : d14.length });
   });
   return out.sort((a, b) => b.n / b.win - a.n / a.win).slice(0, 3);
 }
@@ -1301,12 +1355,6 @@ function PainTrendCard({ entries, loadMap, scope, week, month, hints, part, onPa
   return (
     <Card>
       <div className="text-xs font-bold mb-3" style={{ color: ACCENT_DARK }}>SMÄRTA</div>
-      {hints.map((h) => (
-        <div key={h.label} data-testid="pain-hint" className="rounded-lg px-3 py-2 mb-3 text-sm"
-             style={{ backgroundColor: WARN_BG, border: `1px solid ${WARN_BORDER}`, color: WARN_TEXT }}>
-          Smärta på 5 eller mer i {h.label} har noterats {h.n} av de senaste {h.win} dagarna. Om den inte går över kan det vara bra att kontakta fysio eller läkare.
-        </div>
-      ))}
       {!sel ? (
         <p className="text-sm" data-testid="pain-trend-empty" style={{ color: MUTED }}>Ingen smärta noterad den här perioden.</p>
       ) : (
@@ -1342,6 +1390,12 @@ function PainTrendCard({ entries, loadMap, scope, week, month, hints, part, onPa
           <div className="text-xs mt-1" style={{ color: MUTED }}>Linje: högsta smärta den dagen (0–10). Staplar: belastning. Dagar utan notering visas som glapp.</div>
         </>
       )}
+      {hints.map((h) => (
+        <div key={h.label} data-testid="pain-hint" className="rounded-lg px-3 py-2 mt-3 text-sm"
+             style={{ backgroundColor: WARN_BG, border: `1px solid ${WARN_BORDER}`, color: WARN_TEXT }}>
+          Smärta på 5 eller mer i {h.label} har noterats {h.n} av de senaste {h.win} loggade dagarna. Om den inte går över kan det vara bra att kontakta fysio eller läkare.
+        </div>
+      ))}
     </Card>
   );
 }
@@ -1544,6 +1598,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const setHistMode = (m) => { setHistModeState(m); try { localStorage.setItem(HIST_MODE_KEY, m); } catch (e) {} };
   const sheetOpenRef = React.useRef(false);
   const [sheetVv, setSheetVv] = useState(null);
+  const [swipeDir, setSwipeDir] = useState(""); // "l" | "r": which way the page slides in after a swipe (empty after a tab tap)
   const sheetStash = React.useRef(null);
   const [users, setUsers] = useState(DEFAULT_USERS);
   const [usersLoaded, setUsersLoaded] = useState(false); // until the real list is read, a device's own person must not be judged against the default list
@@ -1790,6 +1845,9 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     return () => { dead = true; };
   }, []);
 
+  // Colours of activities and types: depends on the person shown and what they have done most
+  setColorMaps(usage && usage[activeUserId], ACCENT, darkMode);
+
   // ---- Samma som senast ----
   const [lastEntry, setLastEntry] = useState(null);
 
@@ -2000,6 +2058,55 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       setSheetVv(null);
     };
   }, [sheetOpen]);
+
+  // ---- Swipe between the tabs: Logga pass, Statistik, Historik ----
+  const VIEW_ORDER = ["logga", "stats", "hist"];
+  const swipeRef = useRef({});
+  swipeRef.current.view = view;
+  swipeRef.current.blocked = sheetOpen || showChangelog || showUsers || showMenu || !!confirmDlg;
+  useEffect(() => {
+    const NOSWIPE = "input, textarea, select, [role=slider], [data-noswipe], .recharts-wrapper, [role=dialog], [aria-modal=true]";
+    const scrollsSideways = (el) => {
+      for (let n = el; n && n !== document.body; n = n.parentElement) {
+        const ox = getComputedStyle(n).overflowX;
+        if ((ox === "auto" || ox === "scroll") && n.scrollWidth > n.clientWidth + 1) return true;
+      }
+      return false;
+    };
+    let g = null;
+    const onStart = (e) => {
+      g = null;
+      if (e.touches.length !== 1 || swipeRef.current.blocked) return;
+      const t = e.touches[0];
+      if (t.clientX < 24 || t.clientX > window.innerWidth - 24) return; // the phone uses the edges for back/forward
+      const el = e.target instanceof Element ? e.target : null;
+      if (el && (el.closest(NOSWIPE) || scrollsSideways(el))) return;
+      g = { x: t.clientX, y: t.clientY, t: Date.now(), dead: false };
+    };
+    const onMove = (e) => {
+      if (!g || g.dead) return;
+      const t = e.touches[0];
+      if (Math.abs(t.clientY - g.y) > 40 && Math.abs(t.clientY - g.y) > Math.abs(t.clientX - g.x)) g.dead = true; // it is a scroll
+    };
+    const onEnd = (e) => {
+      const s0 = g; g = null;
+      if (!s0 || s0.dead || swipeRef.current.blocked) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - s0.x, dy = t.clientY - s0.y, dt = Date.now() - s0.t;
+      if (dt > 700 || Math.abs(dx) < 60 || Math.abs(dx) < 1.5 * Math.abs(dy)) return;
+      const i = VIEW_ORDER.indexOf(swipeRef.current.view);
+      const j = dx < 0 ? i + 1 : i - 1;
+      if (j < 0 || j >= VIEW_ORDER.length) return;
+      setSwipeDir(dx < 0 ? "l" : "r");
+      setView(VIEW_ORDER[j]);
+    };
+    document.addEventListener("touchstart", onStart, { passive: true });
+    document.addEventListener("touchmove", onMove, { passive: true });
+    document.addEventListener("touchend", onEnd, { passive: true });
+    return () => {
+      document.removeEventListener("touchstart", onStart); document.removeEventListener("touchmove", onMove); document.removeEventListener("touchend", onEnd);
+    };
+  }, []);
 
   // Load a queued (Ej sparat) pass back into the form. Saving replaces the queued pass.
   function startEditPending(a) {
@@ -2942,7 +3049,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         {/* Tabs */}
         <div className="flex gap-2 mb-5 border-b" style={{ borderColor: LINE }}>
           <button
-            onClick={() => setView("logga")}
+            onClick={() => { setSwipeDir(""); setView("logga"); }}
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors"
             style={{
               borderColor: view === "logga" ? ACCENT : "transparent",
@@ -2952,7 +3059,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
             <ClipboardList size={16} /> Logga pass
           </button>
           <button
-            onClick={() => setView("stats")}
+            onClick={() => { setSwipeDir(""); setView("stats"); }}
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors"
             style={{
               borderColor: view === "stats" ? ACCENT : "transparent",
@@ -2962,7 +3069,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
             <BarChart3 size={16} /> Statistik
           </button>
           <button
-            onClick={() => setView("hist")} data-testid="tab-hist"
+            onClick={() => { setSwipeDir(""); setView("hist"); }} data-testid="tab-hist"
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors"
             style={{
               borderColor: view === "hist" ? ACCENT : "transparent",
@@ -2995,6 +3102,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
           </div>
         )}
 
+        <div key={view} data-testid="view-wrap" data-dir={swipeDir || ""} className={swipeDir ? `swipe-in-${swipeDir}` : ""}>
         {view === "logga" && (
           <div className="space-y-5">
             <Card>
@@ -3471,7 +3579,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                       />
                       <Bar dataKey="count" name="Antal pass" radius={[3, 3, 0, 0]} isAnimationActive={false}>
                         {typeDist.map((entry, i) => (
-                          <Cell key={entry.code} fill={TYPE_PALETTE[i % TYPE_PALETTE.length]} />
+                          <Cell key={entry.code} fill={typeColor(entry.code)} />
                         ))}
                       </Bar>
                     </BarChart>
@@ -3481,6 +3589,8 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
             )}
           </div>
         )}
+
+        </div>
 
         {sheetOpen && (
           <div className="fixed left-0 right-0 z-40 flex flex-col justify-end" data-testid="edit-sheet-backdrop"
