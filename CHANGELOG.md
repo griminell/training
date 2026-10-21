@@ -1,5 +1,10 @@
 # Changelog / Ändringslogg
 
+## 1.7.1 – 2026-10-21
+
+- I det öppnade passet skiljs Anteckning från Mående och smärta med en linje och en egen rubrik
+- Skala enligt Borg CR10 står nu direkt efter rubriken Ansträngning
+
 ## 1.7.0 – 2026-10-21
 
 - Ny hopfällbar sektion Mående i loggformuläret, ovanför Anteckningar. Allt är valfritt och inget är förifyllt

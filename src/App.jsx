@@ -5,10 +5,13 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun } from "lucide-react";
 
-export const APP_VERSION = "1.7.0";
+export const APP_VERSION = "1.7.1";
 export const APP_DATE = "2026-10-21";
 
 const CHANGELOG = [
+  { version: "1.7.1", date: "2026-10-21", items: [
+    "I det öppnade passet skiljs Anteckning från Mående och smärta med en linje och en egen rubrik",
+    "Skala enligt Borg CR10 står nu direkt efter rubriken Ansträngning" ] },
   { version: "1.7.0", date: "2026-10-21", items: [
     "Ny hopfällbar sektion Mående i loggformuläret, ovanför Anteckningar. Allt är valfritt och inget är förifyllt",
     "Sömn och Energi på skalan 1–5 (Sömn: Dålig till Toppen, Energi: Tömd till Laddad)",
@@ -2262,7 +2265,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
               </div>
               <div className="mb-4">
                 <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
-                  ANSTRÄNGNING (1–10)
+                  ANSTRÄNGNING (1–10) <span className="font-normal ml-1" style={{ color: FAINT }}>Skala enligt Borg CR10</span>
                 </div>
                 <div className="grid grid-cols-5 gap-1.5">
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
@@ -2282,9 +2285,6 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 </div>
                 <p className="text-xs mt-1.5" style={{ color: HINT }}>
                   1 = Mycket lätt · 3 = Måttligt · 5 = Tungt · 7 = Mycket tungt · 10 = Maximalt
-                </p>
-                <p className="text-xs mt-0.5" style={{ color: FAINT }}>
-                  Skala enligt Borg CR10.
                 </p>
               </div>
               </>)}
@@ -2513,9 +2513,12 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                               </div>
                             )}
                             {hasNote ? (
-                              <p className="text-sm whitespace-pre-wrap" style={{ color: INK }}>
-                                {e.anteckningar}
-                              </p>
+                              <div data-testid="note-block" className={(e.sleep || e.energy || pains.length) ? "mt-2 pt-2 border-t" : ""} style={{ borderColor: LINE }}>
+                                {!!(e.sleep || e.energy || pains.length) && <div className="text-xs font-bold" style={{ color: MUTED }}>ANTECKNING</div>}
+                                <p className="text-sm whitespace-pre-wrap" style={{ color: INK }}>
+                                  {e.anteckningar}
+                                </p>
+                              </div>
                             ) : (
                               <p className="text-xs italic" style={{ color: FAINT }}>
                                 Ingen anteckning för {off ? (e.kind === "sick" ? "den här sjukdagen" : "den här vilodagen") : "det här passet"}.

@@ -108,8 +108,12 @@ with sync_playwright() as pw:
         # single pain => inline text
         sport(P, "Promenad"); P.locator("[data-testid=tid-min]").fill("20"); P.fill("input[type=date]", f"{M}-26")
         P.locator("[data-testid=wellbeing-toggle]").click(); P.locator("[data-testid=pain-quick-heel]").click()
-        P.locator("[data-testid=pain-pos-R]").click(); pain_set(P.locator("[data-testid=pain-row]").last, 4); save(P)
+        P.locator("[data-testid=pain-pos-R]").click(); pain_set(P.locator("[data-testid=pain-row]").last, 4); P.fill("textarea", "Vibes-pass, rutor"); save(P)
         r = row_for(P, 26)
+        r.locator("div").first.click(); P.wait_for_timeout(250)
+        nb = r.locator("[data-testid=note-block]")
+        check("7 Note after pain has its own ANTECKNING heading and divider", nb.count() == 1 and "ANTECKNING" in nb.inner_text() and "Vibes-pass" in nb.inner_text() and nb.evaluate("el => getComputedStyle(el).borderTopWidth") == "1px")
+        r.locator("div").first.click(); P.wait_for_timeout(150)
         check("7 One pain on a short row => 'Häl H 4' on the row", r.locator("[data-testid=pain-badge]").count() == 1 and "Häl H 4" in r.inner_text(), r.inner_text().replace("\n", " "))
         w = P.evaluate("() => [document.documentElement.scrollWidth, window.innerWidth]")
         check("7 No horizontal scroll at 390 px", w[0] <= w[1], str(w))
@@ -120,6 +124,9 @@ with sync_playwright() as pw:
         P.locator("[data-testid=pain-pos-L]").click(); pain_set(P.locator("[data-testid=pain-row]").last, 5); save(P)
         r = row_for(P, 25)
         check("7 One pain on a long row => just a dot", r.locator("[data-testid=pain-dot]").count() == 1 and r.locator("[data-testid=pain-badge]").count() == 0, r.inner_text().replace("\n", " "))
+        # 7c. Borg text sits right after the effort heading
+        bt = P.evaluate("""() => { const h = [...document.querySelectorAll('div')].find(d => d.textContent.startsWith('ANSTRÄNGNING (1–10)') && d.children.length === 1); return h ? h.textContent : ''; }""")
+        check("7c 'Skala enligt Borg CR10' is part of the Ansträngning heading, not below the buttons", "Skala enligt Borg CR10" in bt and P.locator("text=Skala enligt Borg CR10.").count() == 0, bt)
         # 8. plain pass keeps no new fields
         sport(P, "Löpning"); P.locator("[data-testid=tid-min]").fill("40"); P.fill("input[type=date]", f"{M}-24"); save(P)
         e = mine(port, 24)
