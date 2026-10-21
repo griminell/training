@@ -4,6 +4,11 @@ Mobile viewport 390x844, two browser contexts = two phones. The seed is generate
 import sys, os, json, subprocess, time, urllib.request, pathlib, tempfile, datetime, re
 from playwright.sync_api import sync_playwright
 
+def set_effort(P, n):
+    """Tap the effort slider at the position of value n (1-10)."""
+    sl = P.locator("[data-testid=effort-slider]"); sl.scroll_into_view_if_needed(); b = sl.bounding_box()
+    P.mouse.click(b["x"] + 16 + (b["width"] - 32) * (n - 1) / 9, b["y"] + b["height"] / 2); P.wait_for_timeout(100)
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HTML = sys.argv[1] if len(sys.argv) > 1 else str(ROOT / "index.html")
 SHOTS = pathlib.Path(os.environ.get("SHOTS", "/tmp/shots_152")); SHOTS.mkdir(exist_ok=True, parents=True)
@@ -146,7 +151,7 @@ with sync_playwright() as pw:
         P.fill("input[type=date]", day(13)); P.wait_for_timeout(200)
         check("4 Message disappears when the date changes", P.locator("[data-testid=save-error]").count() == 0)
         set_kind(P, "pass"); P.fill("input[type=date]", day(12))
-        P.locator("[data-testid=sport-group] button[aria-pressed]").first.click(); P.fill("input[inputmode=numeric]", "20"); P.get_by_role("button", name="3", exact=True).first.click()
+        P.locator("[data-testid=sport-group] button[aria-pressed]").first.click(); P.fill("input[inputmode=numeric]", "20"); set_effort(P, 3)
         save_btn(P).click(); P.wait_for_timeout(1500)
         d12 = [e for e in month_raw(port) if e["date"] == day(12)]
         check("4 A pass on the same date as a rest day is allowed", len(d12) == 2 and sorted(bool(e.get("kind")) for e in d12) == [False, True], str(d12))

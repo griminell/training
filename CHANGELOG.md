@@ -1,5 +1,11 @@
 # Changelog / Ändringslogg
 
+## 1.7.2 – 2026-10-21
+
+- Ansträngning (1–10) väljs nu med en slider, som smärtan. Ingen siffra är vald från början, tryck eller dra för att välja, och kryssknappen tar bort valet
+- Sliderns ändsiffror (1 och 10, 0 och 10 för smärta) står på samma rad som slidern, så den tar mindre plats
+- Anteckningar heter nu Sammanfattning, i formuläret och i det öppnade passet
+
 ## 1.7.1 – 2026-10-21
 
 - I det öppnade passet skiljs Anteckning från Mående och smärta med en linje och en egen rubrik

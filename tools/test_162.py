@@ -7,6 +7,11 @@ __file__ = str(pathlib.Path(__file__).resolve())
 os.environ.setdefault("SHOTS", "/tmp/shots_162")
 exec(src)
 from playwright.sync_api import sync_playwright
+
+def set_effort(P, n):
+    """Tap the effort slider at the position of value n (1-10)."""
+    sl = P.locator("[data-testid=effort-slider]"); sl.scroll_into_view_if_needed(); b = sl.bounding_box()
+    P.mouse.click(b["x"] + 16 + (b["width"] - 32) * (n - 1) / 9, b["y"] + b["height"] / 2); P.wait_for_timeout(100)
 def pills(P, g): return [b.inner_text().strip() for b in P.locator(f"[data-testid={g}] button[aria-pressed]").all()]
 def more(P, g):
     l = P.locator(f"[data-testid={g}-more]"); return l.inner_text().strip() if l.count() else None
@@ -21,7 +26,7 @@ with sync_playwright() as pw:
         # Log one pass with the new activities and type
         for a in ("Handboll", "Yoga", "Pilates"): P.locator("[data-testid=sport-group] button[aria-pressed]", has_text=re.compile(f"^{a}$")).click()
         P.locator("[data-testid=typ-group] button[aria-pressed]", has_text=re.compile("^Stretching$")).click()
-        P.fill("input[inputmode=numeric]", "40"); P.get_by_role("button", name="3", exact=True).first.click()
+        P.fill("input[inputmode=numeric]", "40"); set_effort(P, 3)
         P.fill("input[type=date]", f"{M}-05")
         P.locator("button.flex-1", has_text=re.compile("^Spara")).first.click(); P.wait_for_timeout(1500)
         raw = json.loads(json.load(urllib.request.urlopen(f"http://localhost:{port}/__raw?path=diaries/{CODE}/entries:{M}")))

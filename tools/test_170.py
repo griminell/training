@@ -8,6 +8,11 @@ os.environ.setdefault("SHOTS", "/tmp/shots_170")
 exec(src)
 from playwright.sync_api import sync_playwright
 
+def set_effort(P, n):
+    """Tap the effort slider at the position of value n (1-10)."""
+    sl = P.locator("[data-testid=effort-slider]"); sl.scroll_into_view_if_needed(); b = sl.bounding_box()
+    P.mouse.click(b["x"] + 16 + (b["width"] - 32) * (n - 1) / 9, b["y"] + b["height"] / 2); P.wait_for_timeout(100)
+
 def row_for(P, day):
     return P.locator("[data-testid=pass-row],[data-testid=offday-row]").filter(has_text=re.compile(rf"^\s*{day:02d}/{M[5:]}"))
 def raw_entries(port):
@@ -36,7 +41,7 @@ with sync_playwright() as pw:
         # 1. collapsed by default
         check("1 Mående is collapsed by default, with a hint", P.locator("[data-testid=sleep]").count() == 0 and "valfritt" in P.locator("[data-testid=wellbeing-summary]").inner_text())
         order = P.evaluate("""() => { const w = document.querySelector('[data-testid=wellbeing]'); const t = [...document.querySelectorAll('textarea')][0]; return w.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING ? 'above' : 'below'; }""")
-        check("1 Mående sits above Anteckningar", order == "above", order)
+        check("1 Mående sits above Sammanfattning", order == "above", order)
         P.locator("[data-testid=wellbeing-toggle]").click(); P.wait_for_timeout(200)
         check("1 Opens on tap, no value preselected", P.locator("[data-testid=sleep] button[aria-pressed=true]").count() == 0 and P.locator("[data-testid=energy] button[aria-pressed=true]").count() == 0)
         check("1 Headline for a pass: SMÄRTA UNDER PASSET", "SMÄRTA UNDER PASSET" in P.locator("body").inner_text())
@@ -112,14 +117,14 @@ with sync_playwright() as pw:
         r = row_for(P, 26)
         r.locator("div").first.click(); P.wait_for_timeout(250)
         nb = r.locator("[data-testid=note-block]")
-        check("7 Note after pain has its own ANTECKNING heading and divider", nb.count() == 1 and "ANTECKNING" in nb.inner_text() and "Vibes-pass" in nb.inner_text() and nb.evaluate("el => getComputedStyle(el).borderTopWidth") == "1px")
+        check("7 Note after pain has its own SAMMANFATTNING heading and divider", nb.count() == 1 and "SAMMANFATTNING" in nb.inner_text() and "Vibes-pass" in nb.inner_text() and nb.evaluate("el => getComputedStyle(el).borderTopWidth") == "1px")
         r.locator("div").first.click(); P.wait_for_timeout(150)
         check("7 One pain on a short row => 'Häl H 4' on the row", r.locator("[data-testid=pain-badge]").count() == 1 and "Häl H 4" in r.inner_text(), r.inner_text().replace("\n", " "))
         w = P.evaluate("() => [document.documentElement.scrollWidth, window.innerWidth]")
         check("7 No horizontal scroll at 390 px", w[0] <= w[1], str(w))
         # long row falls back to dot
         sport(P, "Skidor"); P.locator("[data-testid=tid-min]").fill("125"); P.locator("[data-testid=tid-sec]").fill("30"); P.locator("[data-testid=distance-input]").fill("12,5"); P.fill("input[type=date]", f"{M}-25")
-        P.get_by_role("button", name="8", exact=True).first.click()
+        set_effort(P, 8)
         P.locator("[data-testid=wellbeing-toggle]").click(); P.locator("[data-testid=pain-quick-knee]").click()
         P.locator("[data-testid=pain-pos-L]").click(); pain_set(P.locator("[data-testid=pain-row]").last, 5); save(P)
         r = row_for(P, 25)

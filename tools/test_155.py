@@ -3,6 +3,11 @@ Person menu top right (replaces 'Loggar som' in the form and the import/export b
 import re, sys, os, json, subprocess, time, urllib.request, pathlib, tempfile, datetime
 from playwright.sync_api import sync_playwright
 
+def set_effort(P, n):
+    """Tap the effort slider at the position of value n (1-10)."""
+    sl = P.locator("[data-testid=effort-slider]"); sl.scroll_into_view_if_needed(); b = sl.bounding_box()
+    P.mouse.click(b["x"] + 16 + (b["width"] - 32) * (n - 1) / 9, b["y"] + b["height"] / 2); P.wait_for_timeout(100)
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HTML = sys.argv[1] if len(sys.argv) > 1 else str(ROOT / "index.html")
 SHOTS = pathlib.Path(os.environ.get("SHOTS", "/tmp/shots_155")); SHOTS.mkdir(exist_ok=True, parents=True)
@@ -95,7 +100,7 @@ with sync_playwright() as pw:
         check("4 The choice is remembered on the device", P.evaluate("localStorage.getItem('nivadagbok-me')") == "grim")
         P.screenshot(path=str(SHOTS / "4_grim.png"), full_page=True)
         # a pass saved now belongs to Grim
-        P.locator("[data-testid=sport-group] button[aria-pressed]").first.click(); P.fill("input[inputmode=numeric]", "25"); P.get_by_role("button", name="3", exact=True).first.click(); P.fill("input[type=date]", f"{M}-08")
+        P.locator("[data-testid=sport-group] button[aria-pressed]").first.click(); P.fill("input[inputmode=numeric]", "25"); set_effort(P, 3); P.fill("input[type=date]", f"{M}-08")
         save_btn(P).click(); P.wait_for_timeout(1500)
         check("4 A pass saved as Grim is stored for Grim", any(e["user"] == "grim" and e["date"] == f"{M}-08" for e in month_raw(port)))
 
@@ -144,7 +149,7 @@ with sync_playwright() as pw:
 
         # ---- 9. Queued pass is not affected by switching person ----
         ctl(port, offline=1)
-        P.locator("[data-testid=sport-group] button[aria-pressed]").first.click(); P.fill("input[inputmode=numeric]", "10"); P.get_by_role("button", name="2", exact=True).first.click(); P.fill("input[type=date]", f"{M}-18")
+        P.locator("[data-testid=sport-group] button[aria-pressed]").first.click(); P.fill("input[inputmode=numeric]", "10"); set_effort(P, 2); P.fill("input[type=date]", f"{M}-18")
         save_btn(P).click(); P.wait_for_timeout(2500)
         pick(P, "Grim")
         q = json.loads(P.evaluate("localStorage.getItem('nivadagbok-pending')") or "[]")

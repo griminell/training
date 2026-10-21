@@ -4,6 +4,11 @@ The seed is generated relative to today, so the tests do not age."""
 import re, sys, os, json, subprocess, time, urllib.request, pathlib, tempfile, datetime
 from playwright.sync_api import sync_playwright
 
+def set_effort(P, n):
+    """Tap the effort slider at the position of value n (1-10)."""
+    sl = P.locator("[data-testid=effort-slider]"); sl.scroll_into_view_if_needed(); b = sl.bounding_box()
+    P.mouse.click(b["x"] + 16 + (b["width"] - 32) * (n - 1) / 9, b["y"] + b["height"] / 2); P.wait_for_timeout(100)
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HTML = sys.argv[1] if len(sys.argv) > 1 else str(ROOT / "index.html")
 SHOTS = pathlib.Path(os.environ.get("SHOTS", "/tmp/shots_151")); SHOTS.mkdir(exist_ok=True, parents=True)
@@ -120,7 +125,7 @@ with sync_playwright() as pw:
         # 3. Order does not change while logging; recalculated when the app is opened again
         for k in range(2):
             pick(P, "sport-group", "Pingis")
-            P.fill("input[inputmode=numeric]", "20"); P.get_by_role("button", name="3", exact=True).first.click()
+            P.fill("input[inputmode=numeric]", "20"); set_effort(P, 3)
             P.get_by_role("button", name="Spara pass").click(); P.wait_for_timeout(1200)
             check(f"3 After saving Pingis pass #{k + 1}: order unchanged", pills(P, "sport-group") == ["Löpning", "Promenad", "Skidor"], str(pills(P, "sport-group")))
         reload_ready(P)
@@ -144,16 +149,16 @@ with sync_playwright() as pw:
         P.fill("input[type=date]", d(2)); P.fill("textarea", "mina anteckningar")
         txt = P.locator("[data-testid=same-as-last]").inner_text()
         check("5 Button shows the latest pass (the Pingis one saved today)", txt == "Samma som senast: Pingis · 20 min", txt)
-        P.get_by_role("button", name="9", exact=True).first.click()   # user already chose effort 9: must stay
+        set_effort(P, 9)   # user already chose effort 9: must stay
         P.locator("[data-testid=same-as-last]").click()
         check("5 Activity and time filled", pressed(P, "sport-group") == ["Pingis"] and P.input_value("input[inputmode=numeric]") == "20", f"{pressed(P, 'sport-group')} {P.input_value('input[inputmode=numeric]')}")
         check("5 Date and notes untouched", P.input_value("input[type=date]") == d(2) and P.input_value("textarea") == "mina anteckningar")
-        bg9 = P.evaluate("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '9').style.backgroundColor")
-        check("5 Effort not overwritten", bg9 != "rgb(255, 255, 255)", bg9)
+        bg9 = P.locator("[data-testid=effort-value-text]").inner_text()
+        check("5 Effort not overwritten", bg9 == "9", bg9)
         # fresh form: effort is empty after Samma som senast
         reload_ready(P)
         P.locator("[data-testid=same-as-last]").click()
-        any_effort = P.evaluate("[...document.querySelectorAll('button')].filter(b => /^(10|[1-9])$/.test(b.textContent.trim())).some(b => b.style.backgroundColor !== 'rgb(255, 255, 255)')")
+        any_effort = P.locator("[data-testid=effort-value-text]").inner_text() != "–"
         check("5 Effort is NOT filled in by Samma som senast", not any_effort)
         # hidden while editing a saved pass
         P.locator("button[title='Redigera']").first.click(); P.wait_for_timeout(300)

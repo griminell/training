@@ -3,6 +3,11 @@ Rensa button, Pass/Vilodag/Sjukdag above the date, divider under the user choice
 import sys, os, json, subprocess, time, urllib.request, pathlib, tempfile, datetime, re
 from playwright.sync_api import sync_playwright
 
+def set_effort(P, n):
+    """Tap the effort slider at the position of value n (1-10)."""
+    sl = P.locator("[data-testid=effort-slider]"); sl.scroll_into_view_if_needed(); b = sl.bounding_box()
+    P.mouse.click(b["x"] + 16 + (b["width"] - 32) * (n - 1) / 9, b["y"] + b["height"] / 2); P.wait_for_timeout(100)
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HTML = sys.argv[1] if len(sys.argv) > 1 else str(ROOT / "index.html")
 SHOTS = pathlib.Path(os.environ.get("SHOTS", "/tmp/shots_153")); SHOTS.mkdir(exist_ok=True, parents=True)
@@ -80,7 +85,7 @@ with sync_playwright() as pw:
         P.locator("[data-testid=sport-group-more]").click()
         P.locator("[data-testid=sport-group] button[aria-pressed]", has_text=re.compile("^Pingis$")).first.click()
         P.locator("[data-testid=typ-group] button[aria-pressed]").first.click()
-        P.fill("input[inputmode=numeric]", "45"); P.get_by_role("button", name="7", exact=True).first.click(); P.fill("textarea", "något jag skrev")
+        P.fill("input[inputmode=numeric]", "45"); set_effort(P, 7); P.fill("textarea", "något jag skrev")
         check("3 Rensa is enabled once something is filled in", clear_btn(P).is_enabled())
         p0 = puts(port)
         clear_btn(P).click(); P.wait_for_timeout(300)
@@ -117,13 +122,13 @@ with sync_playwright() as pw:
         ctxG.close()
         P.locator("[data-testid=sport-group-more]").click()
         P.locator("[data-testid=sport-group] button[aria-pressed]", has_text=re.compile("^Cykel$")).click()
-        P.fill("input[type=date]", f"{M}-11"); P.fill("input[inputmode=numeric]", "90"); P.get_by_role("button", name="5", exact=True).first.click()
+        P.fill("input[type=date]", f"{M}-11"); P.fill("input[inputmode=numeric]", "90"); set_effort(P, 5)
         P.locator("button.flex-1", has_text=re.compile("^Spara")).first.click(); P.wait_for_timeout(1500)
         raw = json.loads(json.load(urllib.request.urlopen(f"http://localhost:{port}/__raw?path=diaries/{CODE}/entries:{M}")))
         check("5 A Cykel pass is saved with code CY and shown in the list", any(e["sport"] == ["CY"] for e in raw) and P.locator("[data-testid=pass-row]", has_text="CY").count() == 1)
         P.locator("[data-testid=sport-group-more]").click()
         P.locator("[data-testid=sport-group] button[aria-pressed]", has_text=re.compile("^Rullskidor$")).click()
-        P.fill("input[type=date]", f"{M}-12"); P.fill("[data-testid=tid-min]", "60"); P.get_by_role("button", name="6", exact=True).first.click()
+        P.fill("input[type=date]", f"{M}-12"); P.fill("[data-testid=tid-min]", "60"); set_effort(P, 6)
         P.locator("button.flex-1", has_text=re.compile("^Spara")).first.click(); P.wait_for_timeout(1500)
         raw = json.loads(json.load(urllib.request.urlopen(f"http://localhost:{port}/__raw?path=diaries/{CODE}/entries:{M}")))
         check("5 A Rullskidor pass is saved with code RU", any(e["sport"] == ["RU"] for e in raw))
@@ -169,7 +174,7 @@ with sync_playwright() as pw:
 
         # ---- 7. Still saves as before, and Rensa after a save ----
         P.fill("input[type=date]", f"{M}-11")
-        P.locator("[data-testid=sport-group] button[aria-pressed]").first.click(); P.fill("input[inputmode=numeric]", "30"); P.get_by_role("button", name="4", exact=True).first.click()
+        P.locator("[data-testid=sport-group] button[aria-pressed]").first.click(); P.fill("input[inputmode=numeric]", "30"); set_effort(P, 4)
         P.locator("button.flex-1", has_text=re.compile("^Spara")).first.click(); P.wait_for_timeout(1500)
         raw = json.loads(json.load(urllib.request.urlopen(f"http://localhost:{port}/__raw?path=diaries/{CODE}/entries:{M}")))
         check("7 Saving still works (a normal pass after all that)", sum(1 for e in raw if e["sport"] == ["F"] or e["sport"]) >= 4, str(len(raw)))

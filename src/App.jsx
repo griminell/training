@@ -5,10 +5,14 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun } from "lucide-react";
 
-export const APP_VERSION = "1.7.1";
+export const APP_VERSION = "1.7.2";
 export const APP_DATE = "2026-10-21";
 
 const CHANGELOG = [
+  { version: "1.7.2", date: "2026-10-21", items: [
+    "Ansträngning (1–10) väljs nu med en slider, som smärtan. Ingen siffra är vald från början, tryck eller dra för att välja, och kryssknappen tar bort valet",
+    "Sliderns ändsiffror (1 och 10, 0 och 10 för smärta) står på samma rad som slidern, så den tar mindre plats",
+    "Anteckningar heter nu Sammanfattning, i formuläret och i det öppnade passet" ] },
   { version: "1.7.1", date: "2026-10-21", items: [
     "I det öppnade passet skiljs Anteckning från Mående och smärta med en linje och en egen rubrik",
     "Skala enligt Borg CR10 står nu direkt efter rubriken Ansträngning" ] },
@@ -707,62 +711,63 @@ function ScaleRow({ title, value, labels, onChange, testId }) {
   );
 }
 
-// Pain 0-10 as a slider that starts unset: no thumb until the user taps or drags (so nothing looks pre-chosen).
+// A slider that starts unset: no thumb until the user taps or drags (so nothing looks pre-chosen). Used for pain (0-10) and effort (1-10).
 // Tap or drag horizontally; a vertical swipe still scrolls the page (touch-action: pan-y).
-function PainSlider({ value, onChange }) {
+function RangeSlider({ value, onChange, min, max, testId, label }) {
   const ref = useRef(null);
   const drag = useRef(null);
-  const PAD = 16; // half the thumb, so 0 and 10 sit fully inside the track
+  const PAD = 16; // half the thumb, so both ends sit fully inside the track
+  const span = max - min;
   const set = (clientX) => {
     const r = ref.current.getBoundingClientRect();
     const t = Math.min(1, Math.max(0, (clientX - r.left - PAD) / Math.max(1, r.width - 2 * PAD)));
-    const v = String(Math.round(t * 10));
+    const v = String(min + Math.round(t * span));
     if (v !== value) onChange(v);
   };
   const n = value === "" ? null : Number(value);
-  const pos = (i) => `calc(${PAD}px + (100% - ${2 * PAD}px) * ${i / 10})`;
+  const pos = (i) => `calc(${PAD}px + (100% - ${2 * PAD}px) * ${(i - min) / span})`;
+  const steps = Array.from({ length: span + 1 }, (_, i) => min + i);
   const key = (e) => {
     const d = e.key === "ArrowRight" || e.key === "ArrowUp" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowDown" ? -1 : 0;
     if (!d) return;
     e.preventDefault();
-    onChange(String(Math.min(10, Math.max(0, (n === null ? (d > 0 ? -1 : 11) : n) + d))));
+    onChange(String(Math.min(max, Math.max(min, (n === null ? (d > 0 ? min - 1 : max + 1) : n) + d))));
   };
   return (
-    <div className="mb-2" data-testid="pain-slider-wrap">
-      <div className="flex items-center gap-2">
-        <div ref={ref} role="slider" tabIndex={0} aria-label="Smärta 0 till 10" aria-valuemin={0} aria-valuemax={10}
-             aria-valuenow={n === null ? undefined : n} aria-valuetext={n === null ? "Inte vald" : String(n)} data-testid="pain-slider" onKeyDown={key}
+    <div className="mb-2" data-testid={`${testId}-slider-wrap`}>
+      <div className="flex items-center gap-1">
+        <span className="text-xs shrink-0 text-right" style={{ color: HINT, width: 14 }} data-testid={`${testId}-min`}>{min}</span>
+        <div ref={ref} role="slider" tabIndex={0} aria-label={label} aria-valuemin={min} aria-valuemax={max}
+             aria-valuenow={n === null ? undefined : n} aria-valuetext={n === null ? "Inte vald" : String(n)} data-testid={`${testId}-slider`} onKeyDown={key}
              onPointerDown={(e) => { drag.current = { x: e.clientX, moved: false }; try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {} }}
              onPointerMove={(e) => { const d = drag.current; if (!d) return; if (Math.abs(e.clientX - d.x) > 4) { d.moved = true; set(e.clientX); } }}
              onPointerUp={(e) => { const d = drag.current; drag.current = null; if (d && !d.moved) set(e.clientX); }}
              onPointerCancel={() => { drag.current = null; }}
              className="relative flex-1 select-none" style={{ height: 44, touchAction: "pan-y", cursor: "pointer" }}>
+          {n === null && <div data-testid={`${testId}-slider-hint`} className="absolute text-xs text-center w-full" style={{ top: 1, color: HINT, pointerEvents: "none" }}>Tryck eller dra för att välja</div>}
           <div className="absolute rounded-full" style={{ left: PAD, right: PAD, top: 20, height: 4, backgroundColor: LINE2 }} />
-          {n !== null && <div className="absolute rounded-full" style={{ left: PAD, width: `calc((100% - ${2 * PAD}px) * ${n / 10})`, top: 20, height: 4, backgroundColor: ACCENT }} />}
-          {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => (
+          {n !== null && <div className="absolute rounded-full" style={{ left: PAD, width: `calc((100% - ${2 * PAD}px) * ${(n - min) / span})`, top: 20, height: 4, backgroundColor: ACCENT }} />}
+          {steps.map((i) => (
             <div key={i} className="absolute rounded-full" style={{ left: pos(i), top: 19, width: 2, height: 6, marginLeft: -1, backgroundColor: n !== null && i <= n ? ACCENT : MUTED, opacity: n !== null && i <= n ? 1 : 0.5 }} />
           ))}
           {n !== null && (
-            <div data-testid="pain-thumb" className="absolute rounded-full" style={{ left: pos(n), top: 8, width: 28, height: 28, marginLeft: -14, backgroundColor: ACCENT, border: `3px solid ${CARD}`, boxShadow: `0 0 0 1px ${ACCENT}` }} />
+            <div data-testid={`${testId}-thumb`} className="absolute rounded-full" style={{ left: pos(n), top: 8, width: 28, height: 28, marginLeft: -14, backgroundColor: ACCENT, border: `3px solid ${CARD}`, boxShadow: `0 0 0 1px ${ACCENT}` }} />
           )}
         </div>
-        <div className="flex items-center gap-1 shrink-0" style={{ width: 54 }}>
-          <span data-testid="pain-value-text" className="text-2xl font-bold text-center" style={{ minWidth: 28, color: n === null ? FAINT : ACCENT_DARK }}>{n === null ? "–" : n}</span>
+        <span className="text-xs shrink-0" style={{ color: HINT, width: 14 }} data-testid={`${testId}-max`}>{max}</span>
+        <div className="flex items-center gap-1 shrink-0 ml-1" style={{ width: 54 }}>
+          <span data-testid={`${testId}-value-text`} className="text-2xl font-bold text-center" style={{ minWidth: 28, color: n === null ? FAINT : ACCENT_DARK }}>{n === null ? "–" : n}</span>
           {n !== null && (
-            <button type="button" data-testid="pain-clear" aria-label="Rensa värdet" onClick={() => onChange("")} className="p-1 rounded hover-soft">
+            <button type="button" data-testid={`${testId}-clear`} aria-label="Rensa värdet" onClick={() => onChange("")} className="p-1 rounded hover-soft">
               <X size={14} style={{ color: MUTED }} />
             </button>
           )}
         </div>
       </div>
-      <div className="flex justify-between text-xs" style={{ color: HINT, marginRight: 62, paddingLeft: PAD - 4, paddingRight: PAD - 6 }}>
-        <span>0</span>
-        {n === null && <span data-testid="pain-slider-hint">Tryck eller dra för att välja</span>}
-        <span>10</span>
-      </div>
     </div>
   );
 }
+const PainSlider = ({ value, onChange }) => <RangeSlider value={value} onChange={onChange} min={0} max={10} testId="pain" label="Smärta 0 till 10" />;
 
 // Collapsible "Mående" section of the log form.
 function WellbeingSection({ form, setForm, isOff, counts }) {
@@ -2267,23 +2272,8 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
                   ANSTRÄNGNING (1–10) <span className="font-normal ml-1" style={{ color: FAINT }}>Skala enligt Borg CR10</span>
                 </div>
-                <div className="grid grid-cols-5 gap-1.5">
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-                    <button
-                      key={n} type="button"
-                      onClick={() => setForm((f) => ({ ...f, kansla: String(n) }))}
-                      className="py-2 rounded-lg text-sm font-bold border"
-                      style={{
-                        borderColor: form.kansla === String(n) ? ACCENT : LINE2,
-                        backgroundColor: form.kansla === String(n) ? ACCENT : CARD,
-                        color: form.kansla === String(n) ? ON_ACCENT : CTRL,
-                      }}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs mt-1.5" style={{ color: HINT }}>
+                <RangeSlider value={form.kansla} onChange={(v) => setForm((f) => ({ ...f, kansla: v }))} min={1} max={10} testId="effort" label="Ansträngning 1 till 10" />
+                <p className="text-xs" style={{ color: HINT }}>
                   1 = Mycket lätt · 3 = Måttligt · 5 = Tungt · 7 = Mycket tungt · 10 = Maximalt
                 </p>
               </div>
@@ -2293,7 +2283,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                                 counts={(usage && usage[form.user] && usage[form.user].pain) || NO_COUNTS} />
               <div className="mb-4">
                 <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
-                  ANTECKNINGAR
+                  SAMMANFATTNING
                 </div>
                 <textarea
                   value={form.anteckningar}
@@ -2514,14 +2504,14 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                             )}
                             {hasNote ? (
                               <div data-testid="note-block" className={(e.sleep || e.energy || pains.length) ? "mt-2 pt-2 border-t" : ""} style={{ borderColor: LINE }}>
-                                {!!(e.sleep || e.energy || pains.length) && <div className="text-xs font-bold" style={{ color: MUTED }}>ANTECKNING</div>}
+                                {!!(e.sleep || e.energy || pains.length) && <div className="text-xs font-bold" style={{ color: MUTED }}>SAMMANFATTNING</div>}
                                 <p className="text-sm whitespace-pre-wrap" style={{ color: INK }}>
                                   {e.anteckningar}
                                 </p>
                               </div>
                             ) : (
                               <p className="text-xs italic" style={{ color: FAINT }}>
-                                Ingen anteckning för {off ? (e.kind === "sick" ? "den här sjukdagen" : "den här vilodagen") : "det här passet"}.
+                                Ingen sammanfattning för {off ? (e.kind === "sick" ? "den här sjukdagen" : "den här vilodagen") : "det här passet"}.
                               </p>
                             )}
                           </div>

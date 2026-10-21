@@ -58,7 +58,8 @@ def log_pass(page, sport="Fotboll", note="", minutes="30", effort="5", date=None
         btn = page.locator("[data-testid=sport-group] button[aria-pressed]", has_text=re.compile(f"^{sport}$"))
     btn.first.click()
     page.fill("input[inputmode=numeric]", minutes)
-    page.get_by_role("button", name=effort, exact=True).first.click()
+    sl = page.locator("[data-testid=effort-slider]"); sl.scroll_into_view_if_needed(); b = sl.bounding_box()
+    page.mouse.click(b["x"] + 16 + (b["width"] - 32) * (int(effort) - 1) / 9, b["y"] + b["height"] / 2); page.wait_for_timeout(100)
     if note: page.fill("textarea", note)
 
 def click_save(page): page.get_by_role("button", name="Spara pass").click()
