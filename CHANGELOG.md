@@ -1,5 +1,13 @@
 # Changelog / Ändringslogg
 
+## 1.7.6 – 2026-10-22
+
+- Ny ruta Smärta i Statistik: välj kroppsdel och se hur smärtan har varit dag för dag, med belastningen svagt i bakgrunden. Dagar utan notering blir ett glapp i linjen, inte en nolla
+- Om smärtan är ihållande (smärta på 5 eller mer under minst 5 av de senaste 7 dagarna eller 10 av de senaste 14) visas ett lugnt förslag om att kontakta fysio eller läkare
+- Rättat: när du redigerade eller la till ett pass åt någon annan i Historik hoppade personvalet tillbaka till dig när panelen stängdes
+- Rättat: en enhet som tillhör någon annan än Niva eller Grim kunde starta som Niva efter uppdatering av sidan. Nu behålls rätt person
+- Rättat: i Vad är nytt rullar inte sidan bakom längre. Fortsätter du dra uppåt när du kommit till toppen stängs rutan, som ett alternativ till krysset
+
 ## 1.7.5 – 2026-10-21
 
 - Kalendervy i Historik: växla mellan Lista och Kalender (valet sparas per enhet). Dagar med pass har prickar i aktivitetens färg, vilo- och sjukdagar en måne eller termometer och dagar med smärta en liten röd markering

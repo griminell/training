@@ -1,14 +1,20 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useDeferredValue, useRef } from "react";
 import {
-  BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
+  ComposedChart, BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun, History, Search, SlidersHorizontal } from "lucide-react";
 
-export const APP_VERSION = "1.7.5";
+export const APP_VERSION = "1.7.6";
 export const APP_DATE = "2026-10-21";
 
 const CHANGELOG = [
+  { version: "1.7.6", date: "2026-10-22", items: [
+    "Ny ruta Smärta i Statistik: välj kroppsdel och se hur smärtan har varit dag för dag, med belastningen svagt i bakgrunden. Dagar utan notering blir ett glapp i linjen, inte en nolla",
+    "Om smärtan är ihållande (smärta på 5 eller mer under minst 5 av de senaste 7 dagarna eller 10 av de senaste 14) visas ett lugnt förslag om att kontakta fysio eller läkare",
+    "Rättat: när du redigerade eller la till ett pass åt någon annan i Historik hoppade personvalet tillbaka till dig när panelen stängdes",
+    "Rättat: en enhet som tillhör någon annan än Niva eller Grim kunde starta som Niva efter uppdatering av sidan. Nu behålls rätt person",
+    "Rättat: i Vad är nytt rullar inte sidan bakom längre. Fortsätter du dra uppåt när du kommit till toppen stängs rutan, som ett alternativ till krysset" ] },
   { version: "1.7.5", date: "2026-10-21", items: [
     "Kalendervy i Historik: växla mellan Lista och Kalender. Dagar med pass har prickar i aktivitetens färg, vilo- och sjukdagar har en måne eller termometer, och dagar med smärta har en liten röd markering",
     "Tryck på en dag för att se dess pass under kalendern. Där kan du fälla ut, redigera och ta bort precis som i listan",
@@ -152,11 +158,42 @@ function ChangelogModal({ onClose }) {
   const groups = useMemo(() => groupChangelog(CHANGELOG), []);
   const [open, setOpen] = useState(() => new Set([groups[0].key]));
   const toggle = (k) => setOpen((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  // Scrolling never reaches the page behind. Pulling further once the top is reached closes the box (like the X).
+  const boxRef = useRef(null);
+  const [pull, setPull] = useState(0);
+  const touch = useRef({ y: null, top: false });
+  const wheelAcc = useRef({ sum: 0, t: 0 });
+  const PULL_CLOSE = 90;
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+  const onTouchStart = (e) => { const el = boxRef.current; touch.current = { y: e.touches[0].clientY, top: !!el && el.scrollTop <= 0 }; };
+  const onTouchMove = (e) => {
+    const t = touch.current;
+    if (t.y === null || !t.top) return;
+    const dy = e.touches[0].clientY - t.y;
+    setPull(dy > 0 ? Math.min(dy * 0.6, 160) : 0);
+    if (dy > PULL_CLOSE) { t.y = null; setPull(0); onClose(); }
+  };
+  const onTouchEnd = () => { touch.current = { y: null, top: false }; setPull(0); };
+  const onWheel = (e) => {
+    const el = boxRef.current;
+    if (!el || el.scrollTop > 0 || e.deltaY >= 0) { wheelAcc.current.sum = 0; return; }
+    const now = Date.now();
+    if (now - wheelAcc.current.t > 500) wheelAcc.current.sum = 0;
+    wheelAcc.current.t = now;
+    wheelAcc.current.sum += -e.deltaY;
+    if (wheelAcc.current.sum > 200) { wheelAcc.current.sum = 0; onClose(); }
+  };
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.4)" }}
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.4)", overscrollBehavior: "contain" }}
          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-card w-full max-w-md rounded-t-2xl sm:rounded-2xl p-4 overflow-y-auto"
-           style={{ maxHeight: "88vh", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
+      <div ref={boxRef} data-testid="changelog-box" className="bg-card w-full max-w-md rounded-t-2xl sm:rounded-2xl p-4 overflow-y-auto"
+           onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd} onWheel={onWheel}
+           style={{ maxHeight: "88vh", paddingBottom: "max(1rem, env(safe-area-inset-bottom))", overscrollBehavior: "contain",
+                    transform: pull ? `translateY(${pull}px)` : "none", transition: pull ? "none" : "transform .15s" }}>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-bold" style={{ color: INK }}>Vad är nytt</h2>
           <button type="button" onClick={onClose} aria-label="Stäng" className="p-1"><X size={20} /></button>
@@ -1187,6 +1224,128 @@ function Pill({ active, color, onClick, children, title }) {
   );
 }
 
+// ---- Pain trend (Statistik) ----
+const painLabelOf = (q) => { const pi = posInfo(q.part, q.pos); return `${painName(q)}${pi ? " " + pi.short : ""}`; };
+function painKeysOf(entries) {
+  const m = {};
+  entries.forEach((e) => (e.pain || []).forEach((q) => {
+    const k = histPartKey(q);
+    m[k] = m[k] || { key: k, label: painLabelOf(q), days: new Set() };
+    m[k].days.add(e.date);
+  }));
+  return Object.values(m).map((x) => ({ key: x.key, label: x.label, n: x.days.size }))
+    .sort((a, b) => b.n - a.n || a.label.localeCompare(b.label, "sv"));
+}
+// highest value per day for one body part (side counts as its own part)
+function painDayMax(entries, key) {
+  const m = {};
+  entries.forEach((e) => (e.pain || []).forEach((q) => {
+    if (histPartKey(q) !== key) return;
+    const v = parseFloat(q.value);
+    if (!isNaN(v)) m[e.date] = Math.max(m[e.date] === undefined ? -1 : m[e.date], v);
+  }));
+  return m;
+}
+// Persistent pain: pain of 5 or more on 5 of the last 7 days, or on 10 of the last 14 days.
+function persistentPain(entries, today) {
+  const per = {};
+  entries.forEach((e) => (e.pain || []).forEach((q) => {
+    if (!(parseFloat(q.value) >= 5)) return;
+    const k = histPartKey(q);
+    per[k] = per[k] || { label: painLabelOf(q), days: new Set() };
+    per[k].days.add(e.date);
+  }));
+  const from7 = addDaysIso(today, -6), from14 = addDaysIso(today, -13);
+  const out = [];
+  Object.values(per).forEach((x) => {
+    const days = [...x.days];
+    const n7 = days.filter((d) => d >= from7 && d <= today).length;
+    const n14 = days.filter((d) => d >= from14 && d <= today).length;
+    if (n7 >= 5) out.push({ label: x.label, n: n7, win: 7 });
+    else if (n14 >= 10) out.push({ label: x.label, n: n14, win: 14 });
+  });
+  return out.sort((a, b) => b.n / b.win - a.n / a.win).slice(0, 3);
+}
+function daysOfMonthKey(key) {
+  const out = []; let d = `${key}-01`;
+  while (d.slice(0, 7) === key) { out.push(d); d = addDaysIso(d, 1); }
+  return out;
+}
+function PainTrendCard({ entries, loadMap, scope, week, month, hints, part, onPart }) {
+  const parts = useMemo(() => painKeysOf(entries), [entries]);
+  const sel = parts.find((x) => x.key === part) || parts[0] || null;
+  const data = useMemo(() => {
+    if (!sel) return [];
+    const max = painDayMax(entries, sel.key);
+    let days;
+    if (scope === "week") days = Array.from({ length: 7 }, (_, i) => addDaysIso(week, i));
+    else if (scope === "month") days = daysOfMonthKey(month);
+    else {
+      const dates = entries.map((e) => e.date).sort();
+      days = [];
+      if (dates.length) {
+        const a = dates[0], b = dates[dates.length - 1];
+        for (let d = a; d <= b && days.length < 400; d = addDaysIso(d, 1)) days.push(d);
+        if (days.length >= 400 || addDaysIso(a, 399) < b) days = [...new Set(dates)];
+      }
+    }
+    return days.map((d, i) => ({
+      date: d,
+      x: scope === "week" ? WEEKDAY_SHORT[i] : scope === "month" ? String(parseInt(d.slice(8), 10)) : d.slice(5),
+      pain: max[d] === undefined ? null : max[d],
+      load: Math.round(loadMap[d] || 0),
+    }));
+  }, [entries, sel, scope, week, month, loadMap]);
+  const vals = data.filter((r) => r.pain !== null).map((r) => r.pain);
+  const stat = vals.length ? { max: Math.max(...vals), avg: vals.reduce((a, b) => a + b, 0) / vals.length, n: vals.length } : null;
+  return (
+    <Card>
+      <div className="text-xs font-bold mb-3" style={{ color: ACCENT_DARK }}>SMÄRTA</div>
+      {hints.map((h) => (
+        <div key={h.label} data-testid="pain-hint" className="rounded-lg px-3 py-2 mb-3 text-sm"
+             style={{ backgroundColor: WARN_BG, border: `1px solid ${WARN_BORDER}`, color: WARN_TEXT }}>
+          Smärta på 5 eller mer i {h.label} har noterats {h.n} av de senaste {h.win} dagarna. Om den inte går över kan det vara bra att kontakta fysio eller läkare.
+        </div>
+      ))}
+      {!sel ? (
+        <p className="text-sm" data-testid="pain-trend-empty" style={{ color: MUTED }}>Ingen smärta noterad den här perioden.</p>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-2 mb-3" data-testid="pain-parts">
+            {parts.map((x) => (
+              <button key={x.key} type="button" data-testid="pain-part" aria-pressed={x.key === sel.key} onClick={() => onPart(x.key)}
+                      className="px-3 rounded-full text-sm font-semibold border"
+                      style={{ minHeight: 36, borderColor: x.key === sel.key ? ACCENT : LINE2, backgroundColor: x.key === sel.key ? ACCENT : CARD, color: x.key === sel.key ? ON_ACCENT : CTRL }}>
+                {x.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-4 mb-2 text-xs" data-testid="pain-stats" style={{ color: MUTED }}>
+            <span>Högst <b style={{ color: INK }}>{stat ? stat.max : "–"}</b></span>
+            <span>Snitt <b style={{ color: INK }}>{stat ? stat.avg.toFixed(1).replace(".", ",") : "–"}</b></span>
+            <span>Dagar med smärta <b style={{ color: INK }}>{stat ? stat.n : 0}</b></span>
+          </div>
+          <div data-testid="pain-chart">
+          <ResponsiveContainer width="100%" height={180}>
+            <ComposedChart data={data} margin={CHART_MARGIN}>
+              <CartesianGrid strokeDasharray="3 3" stroke={GRIDC} vertical={false} />
+              <XAxis dataKey="x" tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: AXISC }} tickLine={false} interval="preserveStartEnd" minTickGap={14} />
+              <YAxis yAxisId="pain" domain={[0, 10]} ticks={[0, 5, 10]} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={40} />
+              <YAxis yAxisId="load" hide domain={[0, (m) => Math.max(m, 1)]} />
+              <Tooltip {...tipProps()} formatter={(v, name) => [v, name]} />
+              <Bar yAxisId="load" dataKey="load" name="Belastning" fill={ACCENT} fillOpacity={0.18} isAnimationActive={false} />
+              <Line yAxisId="pain" type="monotone" dataKey="pain" name="Smärta" stroke={DANGER} strokeWidth={2} connectNulls={false}
+                    dot={{ r: 4, fill: DANGER, stroke: DANGER }} activeDot={{ r: 5 }} isAnimationActive={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+          </div>
+          <div className="text-xs mt-1" style={{ color: MUTED }}>Linje: högsta smärta den dagen (0–10). Staplar: belastning. Dagar utan notering visas som glapp.</div>
+        </>
+      )}
+    </Card>
+  );
+}
+
 function Card({ children, className = "" }) {
   return (
     <div
@@ -1380,11 +1539,14 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const [histMode, setHistModeState] = useState(getHistMode);
   const [histDay, setHistDay] = useState(null);
   const [histFiltersOpen, setHistFiltersOpen] = useState(false);
+  const [statsPart, setStatsPart] = useState(null);
+  const [recentData, setRecentData] = useState({ key: null, data: [] }); // this and last month, for the persistent-pain hint
   const setHistMode = (m) => { setHistModeState(m); try { localStorage.setItem(HIST_MODE_KEY, m); } catch (e) {} };
   const sheetOpenRef = React.useRef(false);
   const [sheetVv, setSheetVv] = useState(null);
   const sheetStash = React.useRef(null);
   const [users, setUsers] = useState(DEFAULT_USERS);
+  const [usersLoaded, setUsersLoaded] = useState(false); // until the real list is read, a device's own person must not be judged against the default list
   const [showUsers, setShowUsers] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -1397,7 +1559,18 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   // Statistics start on the person who is logging, and follow when the person is switched.
   // (Picking another person under "Visar statistik för" lasts until the tab or the person changes.)
   useLayoutEffect(() => { setStatsUser(form.user); }, [form.user, view]);
-  useLayoutEffect(() => { if (!sheetOpenRef.current) setHistUser(form.user); }, [form.user, view]);
+  // Historik follows the person who is logging. Not while the panel is open, and not when closing it restores the log form
+  // (editing someone else's pass must not switch the person back).
+  const skipHistSync = React.useRef(null);
+  useLayoutEffect(() => {
+    if (sheetOpenRef.current) return;
+    if (skipHistSync.current !== null) {
+      const ig = skipHistSync.current; skipHistSync.current = null;
+      if (form.user === ig) return;
+    }
+    setHistUser(form.user);
+  }, [form.user, view]);
+  useEffect(() => { if (!sheetOpen) skipHistSync.current = null; }, [sheetOpen]);
   // The pill highlights at once; the heavy chart rendering follows in the background (interruptible), so taps are never blocked.
   const statsUserShown = useDeferredValue(statsUser);
   const activeUserId = view === "stats" ? statsUserShown : view === "hist" ? histUser : form.user;
@@ -1435,11 +1608,13 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         const list = JSON.parse(res.value);
         if (Array.isArray(list) && list.length) setUsers(list);
       }
+      setUsersLoaded(true);
     } catch (e) { /* behåll nuvarande lista */ }
   }, []);
   useEffect(() => { loadUsers(); }, [loadUsers]);
 
   useEffect(() => {
+    if (!usersLoaded) return;
     const vis = users.filter((u) => !u.hidden && !localHidden.includes(u.id));
     if (!vis.length) {
       // säkerhetsnät: om allt ändå blivit dolt på den här enheten, visa alla ej arkiverade igen
@@ -1448,7 +1623,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     }
     if (!vis.some((u) => u.id === form.user)) setForm((f) => ({ ...f, user: vis[0].id }));
     if (!vis.some((u) => u.id === statsUser)) setStatsUser(vis[0].id);
-  }, [users, localHidden]); // eslint-disable-line
+  }, [users, localHidden, usersLoaded]); // eslint-disable-line
   useEffect(() => {
     try { localStorage.setItem(ME_KEY, form.user); } catch (e) {}
   }, [form.user]);
@@ -1582,6 +1757,17 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     })();
     return () => { dead = true; };
   }, [view, histSearching, allMonths, liveTick]);
+  // This and last month, for the persistent-pain hint in Statistik (independent of the chosen period)
+  useEffect(() => {
+    if (view !== "stats") return undefined;
+    let dead = false;
+    (async () => {
+      const now = monthKeyOf(todayISO());
+      const [a, b] = await Promise.all([safeGet(`entries:${addMonthKey(now, -1)}`), safeGet(`entries:${now}`)]);
+      if (!dead) setRecentData({ key: now, data: [...(a || []), ...(b || [])] });
+    })();
+    return () => { dead = true; };
+  }, [view, liveTick]);
 
   // ---- Vanligaste valen: counted once when the app opens (never while logging) ----
   const [usage, setUsage] = useState(null); // { userId: { sport: {code: n}, typ: {code: n}, pain: {part: n} } }
@@ -1772,6 +1958,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     sheetStash.current = null;
     sheetOpenRef.current = false;
     if (st) {
+      skipHistSync.current = st.form.user;
       setForm(st.form); setEditingId(st.editingId); setEditingOriginalMonth(st.editingOriginalMonth); setEditingPending(st.editingPending);
     }
     setSheetOpen(false);
@@ -2148,6 +2335,14 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   }, [statsScope, allEntries, monthEntries, weekEntries, statsUserShown]);
   // Rest/sick days never count as passes: everything below uses real passes only.
   const dataForStats = useMemo(() => statsBase.filter(isRealPass), [statsBase]);
+  const painLoadMap = useMemo(() => {
+    const m = {};
+    dataForStats.forEach((e) => { m[e.date] = (m[e.date] || 0) + (parseFloat(e.tid) || 0) * (parseFloat(e.kansla) || 0); });
+    return m;
+  }, [dataForStats]);
+  const painHints = useMemo(
+    () => persistentPain(recentData.data.filter((e) => (e.user || "niva") === statsUserShown && !queuedIds.has(e.id)), todayISO()),
+    [recentData, statsUserShown, queuedIds]);
   const offDayCounts = useMemo(() => ({
     rest: statsBase.filter((e) => e.kind === "rest").length,
     sick: statsBase.filter((e) => e.kind === "sick").length,
@@ -2245,6 +2440,10 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     [monthEntries, form.user, queuedIds]
   );
 
+  const painTrendCard = (
+    <PainTrendCard entries={statsBase} loadMap={painLoadMap} scope={statsScope} week={statsWeek} month={selectedMonth}
+                   hints={painHints} part={statsPart} onPart={setStatsPart} />
+  );
   const offDayCard = (
     <Card>
       <div className="text-xs font-bold mb-1" style={{ color: ACCENT_DARK }}>REGISTRERADE VILO-/SJUKDAGAR</div>
@@ -3168,6 +3367,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                   </p>
                 </Card>
                 {offDayCard}
+                {painTrendCard}
               </>
             ) : (
               <>
@@ -3218,6 +3418,8 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                     </BarChart>
                   </ResponsiveContainer>
                 </Card>
+
+                {painTrendCard}
 
                 <div className="grid sm:grid-cols-2 gap-4">
                   <Card>
