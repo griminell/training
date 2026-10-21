@@ -238,8 +238,8 @@ with sync_playwright() as pw:
         csv_path = SHOTS / "export.csv"; dl.value.save_as(str(csv_path))
         text = csv_path.read_text(encoding="utf-8-sig")
         lines = text.strip().splitlines()
-        check("10 CSV header ends with a new 'Typ' column", lines[0].split(";")[-1] == "Typ" and lines[0].split(";")[:7] == ["Datum", "Anvandare", "Sport", "Traningstyp", "Tid (min)", "Anstrangning (1-10)", "Anteckningar"], lines[0])
-        check("10 CSV has Pass / Vilodag / Sjukdag values", {"Pass", "Vilodag"} <= {l.split(";")[-1] for l in lines[1:]} or False, str({l.split(";")[-1] for l in lines[1:]}))
+        check("10 CSV header ends with a new 'Typ' column", lines[0].split(";")[7] == "Typ" and lines[0].split(";")[:7] == ["Datum", "Anvandare", "Sport", "Traningstyp", "Tid (min)", "Anstrangning (1-10)", "Anteckningar"], lines[0])
+        check("10 CSV has Pass / Vilodag / Sjukdag values", {"Pass", "Vilodag"} <= {l.split(";")[7] for l in lines[1:]} or False, str({l.split(";")[7] for l in lines[1:]}))
         ctxE.close()
         port2 = 9402
         empty = seed_file([])

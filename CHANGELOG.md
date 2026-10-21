@@ -1,5 +1,11 @@
 # Changelog / Ändringslogg
 
+## 1.6.4 – 2026-10-21
+
+- Ny uppgift: Distans (km) bredvid Tid. Syns i passlistan, i statistiken (Distans totalt) och i CSV-filen
+- Tempo visas i det öppnade passet för löpning, promenad (min/km) och cykel (km/h)
+- Statistiken visar nu den person du loggar som från början, och byter när du byter person i menyn
+
 ## 1.6.3 – 2026-10-20
 
 - Ny aktivitet: Barmarksträning (före Pingis)

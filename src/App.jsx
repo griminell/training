@@ -5,10 +5,14 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun } from "lucide-react";
 
-export const APP_VERSION = "1.6.3";
+export const APP_VERSION = "1.6.4";
 export const APP_DATE = "2026-10-20";
 
 const CHANGELOG = [
+  { version: "1.6.4", date: "2026-10-21", items: [
+    "Ny uppgift: Distans (km) bredvid Tid. Syns i passlistan, i statistiken (Distans totalt) och i CSV-filen",
+    "Tempo visas i det öppnade passet för löpning, promenad (min/km) och cykel (km/h)",
+    "Statistiken visar nu den person du loggar som från början, och byter när du byter person i menyn" ] },
   { version: "1.6.3", date: "2026-10-20", items: [
     "Ny aktivitet: Barmarksträning (före Pingis)" ] },
   { version: "1.6.2", date: "2026-10-20", items: [
@@ -502,6 +506,29 @@ async function runAction(a, onStage) {
 }
 // kind: missing = normal pass, "rest" = rest day, "sick" = sick day
 const kindLabel = (k) => (k === "rest" ? "Vilodag" : k === "sick" ? "Sjukdag" : "Pass");
+// ---- Distance (km, optional) and pace ----
+// Stored as a plain string with a dot ("5.2"); shown with a comma. Empty = not logged.
+function cleanDistance(v) {
+  let t = String(v == null ? "" : v).replace(",", ".").replace(/[^0-9.]/g, "");
+  const i = t.indexOf(".");
+  if (i > -1) t = t.slice(0, i + 1) + t.slice(i + 1).replace(/\./g, "").slice(0, 2);
+  return t.slice(0, 6);
+}
+const distNum = (e) => { const d = parseFloat(e && e.distance); return d > 0 ? d : 0; };
+const fmtKm = (km) => (Math.round(km * 100) / 100).toLocaleString("sv-SE", { maximumFractionDigits: 2 });
+// Pace is shown only for passes with exactly one activity among Löpning, Promenad and Cykel (otherwise it is unclear what the distance belongs to).
+function paceOf(e) {
+  const sp = e && e.sport || [];
+  const km = distNum(e), min = parseFloat(e && e.tid) || 0;
+  if (sp.length !== 1 || !km || !min) return null;
+  if (sp[0] === "CY") return `${(km / (min / 60)).toLocaleString("sv-SE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km/h`;
+  if (sp[0] === "LÖ" || sp[0] === "PR") {
+    const secPerKm = Math.round((min * 60) / km);
+    return `${Math.floor(secPerKm / 60)}:${String(secPerKm % 60).padStart(2, "0")} min/km`;
+  }
+  return null;
+}
+
 function entryLine(e) {
   if (e.kind === "rest" || e.kind === "sick") return `${e.date.slice(8)}/${e.date.slice(5, 7)} · ${kindLabel(e.kind)}`;
   return [
@@ -509,6 +536,7 @@ function entryLine(e) {
     (e.sport || []).join(" "),
     (e.typ || []).length ? e.typ.join(" ") : null,
     e.tid ? `${e.tid} min` : null,
+    distNum(e) ? `${fmtKm(distNum(e))} km` : null,
     e.kansla ? `ansträngning ${e.kansla}` : null,
   ].filter(Boolean).join(" · ");
 }
@@ -875,6 +903,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     sport: [],
     typ: [],
     tid: "",
+    distance: "",
     kansla: "",
     anteckningar: "",
     kind: "pass", // form only: "pass" | "rest" | "sick" (a normal pass is stored without kind)
@@ -891,6 +920,9 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     setLocalHidden(next);
     try { localStorage.setItem(LOCAL_HIDDEN_KEY, JSON.stringify(next)); } catch (e) {}
   }
+  // Statistics start on the person who is logging, and follow when the person is switched.
+  // (Picking another person under "Visar statistik för" lasts until the tab or the person changes.)
+  useLayoutEffect(() => { setStatsUser(form.user); }, [form.user, view]);
   const activeUserId = view === "stats" ? statsUser : form.user;
   const [themeMode, setThemeModeState] = useState(getThemeMode);
   const [sysDark, setSysDark] = useState(systemPrefersDark);
@@ -1170,6 +1202,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       sport: entry.sport || [],
       typ: entry.typ || [],
       tid: entry.tid || "",
+      distance: entry.distance || "",
       kansla: entry.kansla || "",
       anteckningar: entry.anteckningar || "",
       kind: isOffDay(entry) ? entry.kind : "pass",
@@ -1190,6 +1223,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       sport: a.entry.sport || [],
       typ: a.entry.typ || [],
       tid: a.entry.tid || "",
+      distance: a.entry.distance || "",
       kansla: a.entry.kansla || "",
       anteckningar: a.entry.anteckningar || "",
       kind: isOffDay(a.entry) ? a.entry.kind : "pass",
@@ -1214,7 +1248,9 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     if (kind === "rest" || kind === "sick") {
       return { id, date: form.date, user: form.user, kind, sport: [], typ: [], tid: "", kansla: "", anteckningar: form.anteckningar, cr10: true };
     }
-    return { id, ...rest, cr10: true };
+    const { distance, ...base } = rest;
+    const dist = cleanDistance(distance);
+    return { id, ...base, ...(parseFloat(dist) > 0 ? { distance: dist } : {}), cr10: true };
   }
   // At most one rest/sick day per user and date. Checks the queue and the saved month (if it can be read).
   async function offDayTaken(ignoreId) {
@@ -1226,7 +1262,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     return !!(r.ok && (r.data || []).some(same));
   }
   const isOff = form.kind === "rest" || form.kind === "sick";
-  const formDirty = form.sport.length > 0 || form.typ.length > 0 || !!form.tid || !!form.kansla || form.anteckningar.trim() !== "";
+  const formDirty = form.sport.length > 0 || form.typ.length > 0 || !!form.tid || !!form.distance || !!form.kansla || form.anteckningar.trim() !== "";
   // "Rensa": empties what was filled in. Date, user and Pass/Vilodag/Sjukdag stay (handy when logging several days in a row).
   function clearForm() {
     setForm((f) => ({ ...emptyForm, user: f.user, date: f.date, kind: f.kind }));
@@ -1332,7 +1368,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       results.forEach((r) => { if (r.data) merged.push(...r.data); });
       merged.sort((a, b) => a.date.localeCompare(b.date));
 
-      const header = ["Datum", "Anvandare", "Sport", "Traningstyp", "Tid (min)", "Anstrangning (1-10)", "Anteckningar", "Typ"];
+      const header = ["Datum", "Anvandare", "Sport", "Traningstyp", "Tid (min)", "Anstrangning (1-10)", "Anteckningar", "Typ", "Distans (km)"];
       const rows = merged.map((e) => [
         e.date,
         userName(e.user || "niva"),
@@ -1342,6 +1378,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         e.kansla || "",
         e.anteckningar || "",
         kindLabel(e.kind),
+        distNum(e) ? String(distNum(e)).replace(".", ",") : "",
       ]);
       const csv = [header, ...rows]
         .map((row) => row.map(csvEscape).join(";"))
@@ -1415,6 +1452,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         tid: header.indexOf("tid (min)"),
         kansla: header.findIndex((h) => h.startsWith("anstrangning") || h.startsWith("kansla")),
         anteckningar: header.indexOf("anteckningar"),
+        distance: header.indexOf("distans (km)"), // optional, last column since 1.6.4
         kind: header.indexOf("typ"), // optional, last column since 1.5.2; missing = Pass
       };
       if (idx.date === -1) {
@@ -1446,6 +1484,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
           typ: idx.typ > -1 ? (r[idx.typ] || "").split(" ").filter(Boolean) : [],
           tid: idx.tid > -1 ? (r[idx.tid] || "") : "",
           kansla: idx.kansla > -1 ? scaleImported(r[idx.kansla]) : "",
+          ...(idx.distance > -1 && parseFloat(cleanDistance(r[idx.distance])) > 0 && !kind ? { distance: cleanDistance(r[idx.distance]) } : {}),
           cr10: true,
           anteckningar: idx.anteckningar > -1 ? (r[idx.anteckningar] || "") : "",
         };
@@ -1458,7 +1497,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       let failedMonths = 0;
       const monthKeys = Object.keys(byMonth);
       for (const mk of monthKeys) {
-        const sig = (e) => [e.date, e.user, (e.sport||[]).join(","), (e.typ||[]).join(","), e.tid, e.kansla, e.anteckningar, e.kind || ""].join("|");
+        const sig = (e) => [e.date, e.user, (e.sport||[]).join(","), (e.typ||[]).join(","), e.tid, e.distance || "", e.kansla, e.anteckningar, e.kind || ""].join("|");
         // the merge runs on the latest data of that month (see saveKey), so nothing saved meanwhile is overwritten
         const r = await saveMonth(mk, (existing) => {
           const existingSigs = new Set(existing.map(sig));
@@ -1535,7 +1574,8 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     const totalLoad = dataForStats.reduce(
       (s, e) => s + (parseFloat(e.tid) || 0) * (parseFloat(e.kansla) || 0), 0
     );
-    return { totalPass, totalTidMin, avgKansla, totalLoad };
+    const totalKm = dataForStats.reduce((s, e) => s + distNum(e), 0);
+    return { totalPass, totalTidMin, avgKansla, totalLoad, totalKm };
   }, [dataForStats]);
 
   const sortedMonthEntries = useMemo(
@@ -1788,7 +1828,8 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                              selected={form.typ} onToggle={toggleTyp} />
               </div>
 
-              <div className="mb-4" style={{ maxWidth: "50%" }}>
+              <div className="mb-4 flex gap-3">
+                <div className="flex-1 min-w-0">
                   <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
                     TID (MIN)
                   </div>
@@ -1799,6 +1840,19 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                     className="border rounded-lg px-3 py-2 text-sm w-full"
                     style={{ borderColor: LINE2 }}
                   />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
+                    DISTANS (KM)
+                  </div>
+                  <input
+                    type="text" inputMode="decimal" placeholder="t.ex. 5,2" data-testid="distance-input" aria-label="Distans i kilometer"
+                    value={String(form.distance || "").replace(".", ",")}
+                    onChange={(e) => setForm((f) => ({ ...f, distance: cleanDistance(e.target.value) }))}
+                    className="border rounded-lg px-3 py-2 text-sm w-full"
+                    style={{ borderColor: LINE2 }}
+                  />
+                </div>
               </div>
               <div className="mb-4">
                 <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
@@ -1990,6 +2044,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                                       <span style={{ color: MUTED }}> · {e.typ.join(" ")}</span>
                                     )}
                                     {e.tid && <span style={{ color: MUTED }}> · {e.tid} min</span>}
+                                    {distNum(e) > 0 && <span data-testid="distance" style={{ color: MUTED }}> · {fmtKm(distNum(e))} km</span>}
                                     {e.kansla && <span data-testid="effort" style={{ color: MUTED }}> · {e.kansla}/10</span>}
                                   </>
                                 )}
@@ -2018,6 +2073,11 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                         </div>
                         {isExpanded && (
                           <div className="px-3 pb-3 pt-0.5" style={{ paddingLeft: "2rem" }}>
+                            {!off && paceOf(e) && (
+                              <p className="text-sm mb-1" data-testid="pace" style={{ color: INK }}>
+                                <span style={{ color: MUTED }}>Tempo </span>{paceOf(e)}
+                              </p>
+                            )}
                             {hasNote ? (
                               <p className="text-sm whitespace-pre-wrap" style={{ color: INK }}>
                                 {e.anteckningar}
@@ -2110,6 +2170,12 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                     </div>
                     <div className="text-xs" style={{ color: MUTED }}>Belastning (AU)</div>
                   </Card>
+                  {summary.totalKm > 0 && (
+                    <Card className="col-span-2">
+                      <div className="text-2xl font-bold" data-testid="distance-total" style={{ color: ACCENT_DARK }}>{fmtKm(summary.totalKm)}</div>
+                      <div className="text-xs" style={{ color: MUTED }}>Distans totalt (km)</div>
+                    </Card>
+                  )}
                 </div>
 
                 {offDayCard}

@@ -115,7 +115,7 @@ with sync_playwright() as pw:
         open_menu(D)
         with D.expect_download() as dl: D.locator("[data-testid=menu-export]").click()
         pth = SHOTS / "exp.csv"; dl.value.save_as(str(pth)); txt = pth.read_text(encoding="utf-8-sig")
-        check("6 Export from the menu downloads the CSV (with the Typ column)", txt.splitlines()[0].endswith(";Typ") and "nivas pass" in txt and "importerad vila" in txt)
+        check("6 Export from the menu downloads the CSV (with the Typ column)", ";Typ" in txt.splitlines()[0] and "nivas pass" in txt and "importerad vila" in txt)
         ctxD.close()
 
         # ---- 7. Kopiera kopplingslänk + Koppla bort ----
