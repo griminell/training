@@ -1,14 +1,17 @@
-import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useDeferredValue } from "react";
 import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun } from "lucide-react";
 
-export const APP_VERSION = "1.6.4";
+export const APP_VERSION = "1.6.5";
 export const APP_DATE = "2026-10-20";
 
 const CHANGELOG = [
+  { version: "1.6.5", date: "2026-10-21", items: [
+    "Statistik per vecka: välj Vecka, Månad eller Alla månader. Bläddra med pilarna (både vecka och månad) eller tryck på veckan eller månaden för att hoppa till ett valfritt datum",
+    "Snabbare statistiksida: diagrammen animeras inte längre, och det går att klicka direkt när du byter person" ] },
   { version: "1.6.4", date: "2026-10-21", items: [
     "Ny uppgift: Distans (km) bredvid Tid. Syns i passlistan, i statistiken (Distans totalt) och i CSV-filen",
     "Tempo visas i det öppnade passet för löpning, promenad (min/km) och cykel (km/h)",
@@ -392,6 +395,32 @@ function monthLabel(key) {
   const [y, m] = key.split("-");
   return `${MONTH_NAMES[parseInt(m, 10) - 1]} ${y}`;
 }
+// ---- Weeks (Monday to Sunday, ISO week numbers) ----
+const MS_DAY = 86400000;
+const isoToDate = (iso) => new Date(iso + "T12:00:00Z");
+const dateToIso = (d) => d.toISOString().slice(0, 10);
+const addDaysIso = (iso, n) => dateToIso(new Date(isoToDate(iso).getTime() + n * MS_DAY));
+function mondayOf(iso) {
+  const dow = (isoToDate(iso).getUTCDay() + 6) % 7; // Monday = 0
+  return addDaysIso(iso, -dow);
+}
+function isoWeekNumber(iso) {
+  const d = isoToDate(iso);
+  const thursday = new Date(isoToDate(mondayOf(iso)).getTime() + 3 * MS_DAY);
+  const jan1 = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 1, 12));
+  return Math.floor((thursday - jan1) / MS_DAY / 7) + 1;
+}
+const MONTH_SHORT = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
+const WEEKDAY_SHORT = ["Mån", "Tis", "Ons", "Tors", "Fre", "Lör", "Sön"];
+function weekLabel(monday) {
+  const sunday = addDaysIso(monday, 6);
+  const a = { d: parseInt(monday.slice(8), 10), m: parseInt(monday.slice(5, 7), 10) - 1, y: monday.slice(0, 4) };
+  const b = { d: parseInt(sunday.slice(8), 10), m: parseInt(sunday.slice(5, 7), 10) - 1, y: sunday.slice(0, 4) };
+  const range = a.m === b.m ? `${a.d}–${b.d} ${MONTH_SHORT[b.m]}` : `${a.d} ${MONTH_SHORT[a.m]} – ${b.d} ${MONTH_SHORT[b.m]}`;
+  const year = b.y !== todayISO().slice(0, 4) ? ` ${b.y}` : "";
+  return { week: isoWeekNumber(monday), range: range + year };
+}
+
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
@@ -854,13 +883,43 @@ function Card({ children, className = "" }) {
   );
 }
 
+// One look for both period pickers (week and month): arrow, label (tap = jump), arrow.
+function PeriodStepper({ id, canPrev, canNext, onPrev, onNext, prevLabel, nextLabel, children, overlay }) {
+  const arrow = (dir, enabled, label, fn) => (
+    <button type="button" data-testid={`${id}-${dir > 0 ? "next" : "prev"}`} aria-label={label} disabled={!enabled} onClick={fn}
+            className="flex items-center justify-center rounded-lg border"
+            style={{ width: 44, minHeight: 44, borderColor: LINE2, color: CTRL, opacity: enabled ? 1 : 0.35 }}>
+      <ChevronDown size={18} style={{ transform: dir > 0 ? "rotate(-90deg)" : "rotate(90deg)" }} />
+    </button>
+  );
+  return (
+    <div className="flex items-center gap-2">
+      {arrow(-1, canPrev, prevLabel, onPrev)}
+      <div className="relative flex-1 rounded-lg border flex items-center justify-center text-center"
+           style={{ minHeight: 44, borderColor: LINE2, color: INK }}>
+        <div className="text-sm leading-tight px-2 whitespace-nowrap" data-testid={`${id}-label`}>
+          {children}
+          <ChevronDown size={14} style={{ display: "inline", verticalAlign: "-2px", marginLeft: 4, color: MUTED }} />
+        </div>
+        {overlay}
+      </div>
+      {arrow(1, canNext, nextLabel, onNext)}
+    </div>
+  );
+}
+const addMonthKey = (key, n) => { const [y, m] = key.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1, 12)); return d.toISOString().slice(0, 7); };
+
 export default function TraningsDagbok({ connLink, onDisconnect }) {
   const [view, setView] = useState("logga");
   const [allMonths, setAllMonths] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState(monthKeyOf(todayISO()));
   const [monthEntries, setMonthEntries] = useState([]);
   const [allEntries, setAllEntries] = useState(null);
-  const [statsScope, setStatsScope] = useState("month");
+  const [statsScope, setStatsScope] = useState("month"); // "week" | "month" | "all"
+  const [statsWeek, setStatsWeek] = useState(() => mondayOf(todayISO())); // Monday of the chosen week
+  const [weekEntries, setWeekEntries] = useState([]);
+  const [loadingWeek, setLoadingWeek] = useState(false);
+  const [liveTick, setLiveTick] = useState(0); // bumped by live sync so the week view reloads
   const [loadingMonth, setLoadingMonth] = useState(true);
   const [loadingAll, setLoadingAll] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -923,7 +982,9 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   // Statistics start on the person who is logging, and follow when the person is switched.
   // (Picking another person under "Visar statistik för" lasts until the tab or the person changes.)
   useLayoutEffect(() => { setStatsUser(form.user); }, [form.user, view]);
-  const activeUserId = view === "stats" ? statsUser : form.user;
+  // The pill highlights at once; the heavy chart rendering follows in the background (interruptible), so taps are never blocked.
+  const statsUserShown = useDeferredValue(statsUser);
+  const activeUserId = view === "stats" ? statsUserShown : form.user;
   const [themeMode, setThemeModeState] = useState(getThemeMode);
   const [sysDark, setSysDark] = useState(systemPrefersDark);
   const darkMode = themeMode === "dark" || (themeMode === "auto" && sysDark);
@@ -1028,6 +1089,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     return window.storage.subscribe(async () => {
       refreshMonthList();
       loadUsers();
+      setLiveTick((t) => t + 1);
       const mr = await safeGetResult(`entries:${selectedMonthRef.current}`);
       if (mr.ok) {
         const data = mr.data || [];
@@ -1060,6 +1122,24 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       loadAll();
     }
   }, [statsScope, allEntries, allMonths, loadAll]);
+
+  // Week view: read the one or two months the week touches and keep the entries of that week.
+  useEffect(() => {
+    if (statsScope !== "week") return undefined;
+    let dead = false;
+    (async () => {
+      setLoadingWeek(true);
+      const days = Array.from({ length: 7 }, (_, i) => addDaysIso(statsWeek, i));
+      const keys = [...new Set(days.map(monthKeyOf))];
+      const results = await Promise.all(keys.map((k) => safeGet(`entries:${k}`)));
+      if (dead) return;
+      const merged = [];
+      results.forEach((r) => { if (r) merged.push(...r); });
+      setWeekEntries(merged.filter((e) => e.date >= days[0] && e.date <= days[6]));
+      setLoadingWeek(false);
+    })();
+    return () => { dead = true; };
+  }, [statsScope, statsWeek, liveTick]);
 
   // ---- Vanligaste valen: counted once when the app opens (never while logging) ----
   const [usage, setUsage] = useState(null); // { userId: { sport: {code: n}, typ: {code: n} } }
@@ -1523,9 +1603,9 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
 
   // All entries of the chosen user and period, including rest/sick days.
   const statsBase = useMemo(() => {
-    const base = statsScope === "all" ? (allEntries || []) : monthEntries;
-    return base.filter((e) => (e.user || "niva") === statsUser);
-  }, [statsScope, allEntries, monthEntries, statsUser]);
+    const base = statsScope === "all" ? (allEntries || []) : statsScope === "week" ? weekEntries : monthEntries;
+    return base.filter((e) => (e.user || "niva") === statsUserShown);
+  }, [statsScope, allEntries, monthEntries, weekEntries, statsUserShown]);
   // Rest/sick days never count as passes: everything below uses real passes only.
   const dataForStats = useMemo(() => statsBase.filter(isRealPass), [statsBase]);
   const offDayCounts = useMemo(() => ({
@@ -1540,10 +1620,14 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       const kansla = parseFloat(e.kansla) || 0;
       map[e.date] = (map[e.date] || 0) + tid * kansla;
     });
+    if (statsScope === "week") {
+      // all seven days (Mon-Sun), also days without passes
+      return Array.from({ length: 7 }, (_, i) => ({ date: WEEKDAY_SHORT[i], load: Math.round(map[addDaysIso(statsWeek, i)] || 0) }));
+    }
     return Object.entries(map)
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([date, load]) => ({ date: date.slice(5), load: Math.round(load) }));
-  }, [dataForStats]);
+  }, [dataForStats, statsScope, statsWeek]);
 
   const sportDist = useMemo(() => {
     const counts = { F: 0, S: 0, A: 0 };
@@ -2114,33 +2198,90 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={selectedMonth}
-                onChange={(e) => { setSelectedMonth(e.target.value); setStatsScope("month"); }}
-                disabled={statsScope === "all"}
-                className="border rounded-lg px-3 py-2 text-sm"
-                style={{ borderColor: LINE2, opacity: statsScope === "all" ? 0.5 : 1 }}
-              >
-                {allMonths.map((m) => (
-                  <option key={m} value={m}>{monthLabel(m)}</option>
-                ))}
-              </select>
-              <Pill active={statsScope === "month"} color={ACCENT} onClick={() => setStatsScope("month")}>
-                Vald månad
-              </Pill>
-              <Pill active={statsScope === "all"} color={ACCENT} onClick={() => setStatsScope("all")}>
-                Alla månader
-              </Pill>
+            <div role="group" aria-label="Period" data-testid="scope-group" className="flex w-full rounded-lg border overflow-hidden"
+                 style={{ borderColor: LINE2 }}>
+              {[["week", "Vecka"], ["month", "Månad"], ["all", "Alla månader"]].map(([k, label], i) => {
+                const on = statsScope === k;
+                return (
+                  <button key={k} type="button" data-testid={`scope-${k}`} aria-pressed={on} onClick={() => setStatsScope(k)}
+                          className="flex-1 text-sm font-semibold"
+                          style={{ minHeight: 44, backgroundColor: on ? ACCENT : CARD, color: on ? ON_ACCENT : CTRL, borderLeft: i ? `1px solid ${LINE2}` : "none" }}>
+                    {label}
+                  </button>
+                );
+              })}
             </div>
 
-            {(loadingMonth && statsScope === "month") || (loadingAll && statsScope === "all") ? (
+            {statsScope === "month" && (() => {
+              const nowKey = monthKeyOf(todayISO());
+              const firstKey = allMonths[0] || nowKey;
+              const options = [...new Set([...allMonths, selectedMonth])].sort().reverse();
+              return (
+                <div data-testid="month-picker">
+                  <PeriodStepper id="month" prevLabel="Föregående månad" nextLabel="Nästa månad"
+                                 canPrev={selectedMonth > firstKey} canNext={selectedMonth < nowKey}
+                                 onPrev={() => setSelectedMonth(addMonthKey(selectedMonth, -1))}
+                                 onNext={() => setSelectedMonth(addMonthKey(selectedMonth, 1))}
+                                 overlay={(
+                                   <select value={selectedMonth} aria-label="Välj månad" data-testid="month-jump"
+                                           onChange={(e) => setSelectedMonth(e.target.value)}
+                                           className="absolute inset-0 w-full h-full cursor-pointer" style={{ opacity: 0 }}>
+                                     {options.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
+                                   </select>
+                                 )}>
+                    <span className="font-bold">{monthLabel(selectedMonth)}</span>
+                  </PeriodStepper>
+                  {selectedMonth !== nowKey && (
+                    <div className="text-right mt-1">
+                      <button type="button" data-testid="month-now" onClick={() => setSelectedMonth(nowKey)}
+                              className="text-sm font-semibold underline px-1" style={{ minHeight: 44, color: ACCENT_DARK }}>
+                        Denna månad
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {statsScope === "week" && (() => {
+              const thisMonday = mondayOf(todayISO());
+              const firstDay = (allMonths[0] || monthKeyOf(todayISO())) + "-01";
+              const firstMonday = mondayOf(firstDay);
+              const wl = weekLabel(statsWeek);
+              const isCurrent = statsWeek === thisMonday;
+              return (
+                <div data-testid="week-picker">
+                  <PeriodStepper id="week" prevLabel="Föregående vecka" nextLabel="Nästa vecka"
+                                 canPrev={statsWeek > firstMonday} canNext={statsWeek < thisMonday}
+                                 onPrev={() => setStatsWeek((w) => addDaysIso(w, -7))}
+                                 onNext={() => setStatsWeek((w) => addDaysIso(w, 7))}
+                                 overlay={(
+                                   <input type="date" data-testid="week-jump" aria-label="Välj ett datum, så visas veckan som datumet ligger i"
+                                          min={firstDay} max={todayISO()} value=""
+                                          onChange={(e) => { if (e.target.value) setStatsWeek(mondayOf(e.target.value)); }}
+                                          className="absolute inset-0 w-full h-full cursor-pointer" style={{ opacity: 0 }} />
+                                 )}>
+                    <span className="font-bold">Vecka {wl.week}</span> <span style={{ color: MUTED }}>· {wl.range}</span>
+                  </PeriodStepper>
+                  {!isCurrent && (
+                    <div className="text-right mt-1">
+                      <button type="button" data-testid="week-now" onClick={() => setStatsWeek(thisMonday)}
+                              className="text-sm font-semibold underline px-1" style={{ minHeight: 44, color: ACCENT_DARK }}>
+                        Denna vecka
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {(loadingMonth && statsScope === "month") || (loadingAll && statsScope === "all") || (loadingWeek && statsScope === "week") ? (
               <p className="text-sm" style={{ color: MUTED }}>Laddar…</p>
             ) : dataForStats.length === 0 ? (
               <>
                 <Card>
                   <p className="text-sm" style={{ color: MUTED }}>
-                    Inga pass loggade än för det här urvalet. Gå till "Logga pass" för att komma igång.
+                    {statsScope === "week" ? "Inga pass den här veckan." : 'Inga pass loggade än för det här urvalet. Gå till "Logga pass" för att komma igång.'}
                   </p>
                 </Card>
                 {offDayCard}
@@ -2190,7 +2331,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                       <XAxis dataKey="date" tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: AXISC }} tickLine={false} />
                       <YAxis tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={40} />
                       <Tooltip {...tipProps()} />
-                      <Bar dataKey="load" name="Belastning" fill={ACCENT} radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="load" name="Belastning" fill={ACCENT} radius={[3, 3, 0, 0]} isAnimationActive={false} />
                     </BarChart>
                   </ResponsiveContainer>
                 </Card>
@@ -2200,7 +2341,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                     <div className="text-xs font-bold mb-3" style={{ color: ACCENT_DARK }}>FÖRDELNING AKTIVITET</div>
                     <ResponsiveContainer width="100%" height={180}>
                       <PieChart>
-                        <Pie data={sportDist} dataKey="value" nameKey="name" innerRadius={40} outerRadius={70} paddingAngle={2}>
+                        <Pie data={sportDist} dataKey="value" nameKey="name" innerRadius={40} outerRadius={70} paddingAngle={2} isAnimationActive={false}>
                           {sportDist.map((entry, i) => (
                             <Cell key={entry.name} fill={sportColor(entry.code)} />
                           ))}
@@ -2226,7 +2367,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                         <XAxis dataKey="date" padding={{ left: 12, right: 12 }} tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: AXISC }} tickLine={false} />
                         <YAxis domain={[1, 10]} ticks={[1,2,3,4,5,6,7,8,9,10]} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={26} />
                         <Tooltip {...tipProps()} />
-                        <Line type="monotone" dataKey="kansla" stroke={ACCENT} strokeWidth={2} dot={{ r: 3, fill: ACCENT }} />
+                        <Line type="monotone" dataKey="kansla" stroke={ACCENT} strokeWidth={2} dot={{ r: 3, fill: ACCENT }} isAnimationActive={false} />
                       </LineChart>
                     </ResponsiveContainer>
                   </Card>
@@ -2243,7 +2384,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                         {...tipProps()}
                         formatter={(value, name, props) => [value, props.payload.name]}
                       />
-                      <Bar dataKey="count" name="Antal pass" radius={[3, 3, 0, 0]}>
+                      <Bar dataKey="count" name="Antal pass" radius={[3, 3, 0, 0]} isAnimationActive={false}>
                         {typeDist.map((entry, i) => (
                           <Cell key={entry.code} fill={TYPE_PALETTE[i % TYPE_PALETTE.length]} />
                         ))}

@@ -1,5 +1,10 @@
 # Changelog / Ändringslogg
 
+## 1.6.5 – 2026-10-21
+
+- Statistik per vecka: välj Vecka, Månad eller Alla månader. Bläddra med pilarna (både vecka och månad) eller tryck på veckan eller månaden för att hoppa till ett valfritt datum
+- Snabbare statistiksida: diagrammen animeras inte längre, och det går att klicka direkt när du byter person
+
 ## 1.6.4 – 2026-10-21
 
 - Ny uppgift: Distans (km) bredvid Tid. Syns i passlistan, i statistiken (Distans totalt) och i CSV-filen
