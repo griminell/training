@@ -1,5 +1,13 @@
 # Changelog / Ändringslogg
 
+## 1.7.5 – 2026-10-21
+
+- Kalendervy i Historik: växla mellan Lista och Kalender (valet sparas per enhet). Dagar med pass har prickar i aktivitetens färg, vilo- och sjukdagar en måne eller termometer och dagar med smärta en liten röd markering
+- Tryck på en dag för att se dess pass under kalendern, med samma rader som i listan (fälla ut, redigera, ta bort)
+- Dagar utan något loggat har ett plus. Det öppnar panelen med datumet ifyllt, så du kan logga det du missat utan att lämna Historik
+- Filtren ligger nu bakom en filterknapp bredvid sökfältet och tar ingen plats när de inte behövs. Knappen visar hur många filter som är på
+- Sök och filter fungerar i kalendern: dagar utan träff tonas ned. Sökning visar träffarna som lista
+
 ## 1.7.4 – 2026-10-21
 
 - Redigeringspanelen i Historik anpassar sig nu till tangentbordet på telefonen, så det du skriver syns ovanför tangentbordet och Spara-knappen går att nå

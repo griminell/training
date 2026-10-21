@@ -3,12 +3,18 @@ import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun, History, Search } from "lucide-react";
+import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun, History, Search, SlidersHorizontal } from "lucide-react";
 
-export const APP_VERSION = "1.7.4";
+export const APP_VERSION = "1.7.5";
 export const APP_DATE = "2026-10-21";
 
 const CHANGELOG = [
+  { version: "1.7.5", date: "2026-10-21", items: [
+    "Kalendervy i Historik: växla mellan Lista och Kalender. Dagar med pass har prickar i aktivitetens färg, vilo- och sjukdagar har en måne eller termometer, och dagar med smärta har en liten röd markering",
+    "Tryck på en dag för att se dess pass under kalendern. Där kan du fälla ut, redigera och ta bort precis som i listan",
+    "Dagar utan något loggat har ett plus. Tryck på det så glider panelen upp med datumet ifyllt, så du kan logga det du missat utan att lämna Historik",
+    "Filtren ligger nu bakom en filterknapp bredvid sökfältet och tar ingen plats när de inte behövs. Knappen visar hur många filter som är på",
+    "Sök och filter fungerar i kalendern: dagar utan träff tonas ned" ] },
   { version: "1.7.4", date: "2026-10-21", items: [
     "Redigeringspanelen i Historik anpassar sig nu till tangentbordet på telefonen, så det du skriver syns ovanför tangentbordet och Spara-knappen går att nå" ] },
   { version: "1.7.3", date: "2026-10-21", items: [
@@ -528,6 +534,8 @@ const byDate = (a, b) => a.date.localeCompare(b.date);
 // latest data and replaces by id (no duplicates, nobody else's pass is overwritten).
 // Action: { qid, entry, removeFrom (month key or null), stage (0 = write entry, 1 = remove old copy), attempts, queuedAt }
 const PENDING_KEY = "nivadagbok-pending";
+const HIST_MODE_KEY = "nivadagbok-hist-mode"; // per device: "list" | "cal"
+function getHistMode() { try { return localStorage.getItem(HIST_MODE_KEY) === "cal" ? "cal" : "list"; } catch (e) { return "list"; } }
 const HIDE_OFFDAYS_KEY = "nivadagbok-hide-offdays"; // per device: hide rest/sick days in the list of logged passes
 function getHideOffDays() {
   try { return localStorage.getItem(HIDE_OFFDAYS_KEY) === "1"; } catch (e) { return false; }
@@ -1219,6 +1227,7 @@ const addMonthKey = (key, n) => { const [y, m] = key.split("-").map(Number); con
 // ---- Historik: search, filters and week summaries ----
 const histPartKey = (p) => (p.part === "other" ? `other:${(p.label || "").trim().toLowerCase()}` : `${p.part}:${p.pos || ""}`);
 const histPartName = (p) => { const pi = posInfo(p.part, p.pos); return `${painName(p)}${pi ? " " + pi.label : ""}`; };
+const dayTitle = (iso) => `${WEEKDAY_SHORT[(isoToDate(iso).getUTCDay() + 6) % 7]} ${parseInt(iso.slice(8), 10)} ${MONTH_SHORT[parseInt(iso.slice(5, 7), 10) - 1]}`;
 const isoDayLabel = (iso) => `${iso.slice(8)}/${iso.slice(5, 7)}`;
 // Everything a search can hit, lower-cased: note, pain notes and body parts, activities, types, kind and date.
 function histHaystack(e) {
@@ -1368,6 +1377,10 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   // Edit panel (bottom sheet) in Historik: the form lives in the panel; what was in the log form is put aside and put back on close.
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetBase, setSheetBase] = useState("");
+  const [histMode, setHistModeState] = useState(getHistMode);
+  const [histDay, setHistDay] = useState(null);
+  const [histFiltersOpen, setHistFiltersOpen] = useState(false);
+  const setHistMode = (m) => { setHistModeState(m); try { localStorage.setItem(HIST_MODE_KEY, m); } catch (e) {} };
   const sheetOpenRef = React.useRef(false);
   const [sheetVv, setSheetVv] = useState(null);
   const sheetStash = React.useRef(null);
@@ -1734,6 +1747,20 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     const f = entryToForm(entry);
     sheetOpenRef.current = true;
     startEdit(entry, { noScroll: true });
+    setSheetBase(sheetSig(f));
+    setFormEpoch((n) => n + 1);
+    setSaveError(null);
+    setSheetOpen(true);
+  }
+  // Log a pass for a day with nothing registered (the + in the calendar), in the same panel.
+  function openNewSheet(dateIso) {
+    sheetStash.current = { form, editingId, editingOriginalMonth, editingPending };
+    const f = { ...emptyForm, user: histUser, date: dateIso };
+    sheetOpenRef.current = true;
+    setEditingPending(null);
+    setEditingId(null);
+    setEditingOriginalMonth(null);
+    setForm(f);
     setSheetBase(sheetSig(f));
     setFormEpoch((n) => n + 1);
     setSaveError(null);
@@ -2195,6 +2222,19 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                             [histUserEntries, histQuery, histFilters, hideOffDays]);
   const histGroups = useMemo(() => weekGroups(histShown), [histShown]);
   const histOffCount = histUserEntries.filter(isOffDay).length;
+  // Calendar: all entries of the month by day (filters only dim, they never hide a registered day)
+  const histByDay = useMemo(() => {
+    const m = {};
+    histUserEntries.forEach((e) => { (m[e.date] = m[e.date] || []).push(e); });
+    return m;
+  }, [histUserEntries]);
+  const histShownIds = useMemo(() => new Set(histShown.map((e) => e.id)), [histShown]);
+  const histCalOn = histMode === "cal" && !histSearching;
+  const histSelDay = useMemo(() => {
+    if (histDay && histDay.slice(0, 7) === histMonth && histByDay[histDay]) return histDay;
+    const days = Object.keys(histByDay).filter((d) => d.slice(0, 7) === histMonth).sort();
+    return days.length ? days[days.length - 1] : null;
+  }, [histDay, histMonth, histByDay]);
   const histFiltering = histFilters.pain || !!histFilters.sport || !!histFilters.typ || !!histFilters.part;
   const toggleWeek = (monday) => setHistCollapsed((prev) => { const n = new Set(prev); if (n.has(monday)) n.delete(monday); else n.add(monday); return n; });
 
@@ -2387,6 +2427,86 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   }
 
   // One row of a list (used by "Loggade pass" and by Historik; mode "hist" shows pain chips and opens the edit panel).
+  function renderHistCalendar() {
+    const today = todayISO();
+    const first = `${histMonth}-01`;
+    const start = mondayOf(first);
+    // last day of the month
+    let lastDay = first; while (addDaysIso(lastDay, 1).slice(0, 7) === histMonth) lastDay = addDaysIso(lastDay, 1);
+    const weeks = [];
+    for (let mon = start; mon <= lastDay; mon = addDaysIso(mon, 7)) weeks.push(mon);
+    const filtering = histFiltering;
+    const selEntries = histSelDay ? [...(histByDay[histSelDay] || [])].sort((a, b) => (a.id < b.id ? -1 : 1)) : [];
+    return (
+      <div data-testid="hist-calendar">
+        <div className="grid text-center text-xs font-bold mb-1" style={{ gridTemplateColumns: "1.5rem repeat(7, 1fr)", color: MUTED }}>
+          <div />
+          {["M", "T", "O", "T", "F", "L", "S"].map((d, i) => <div key={i}>{d}</div>)}
+        </div>
+        <div className="space-y-1">
+          {weeks.map((mon) => (
+            <div key={mon} className="grid items-stretch gap-1" style={{ gridTemplateColumns: "1.5rem repeat(7, 1fr)" }}>
+              <div className="text-xs flex items-center justify-center" style={{ color: FAINT }} data-testid="cal-week-no">{isoWeekNumber(mon)}</div>
+              {[0, 1, 2, 3, 4, 5, 6].map((i) => {
+                const d = addDaysIso(mon, i);
+                if (d.slice(0, 7) !== histMonth) return <div key={d} />;
+                const list = histByDay[d] || [];
+                const future = d > today, isToday = d === today, sel = d === histSelDay && list.length > 0;
+                const passes = list.filter((e) => !isOffDay(e));
+                const off = list.find(isOffDay);
+                const pain = list.some((e) => (e.pain || []).length > 0);
+                const dim = filtering && list.length > 0 && !list.some((e) => histShownIds.has(e.id));
+                const plus = list.length === 0 && !future && !filtering;
+                const dots = [];
+                passes.forEach((e) => { const code = (e.sport || [])[0]; dots.push(code ? sportColor(code) : MUTED); });
+                const click = () => { if (list.length) setHistDay(d); else if (plus) openNewSheet(d); };
+                return (
+                  <button key={d} type="button" data-testid={`cal-day-${d}`} data-state={list.length ? "filled" : plus ? "empty" : "none"} data-selected={sel ? "1" : "0"}
+                          disabled={!list.length && !plus} onClick={click}
+                          aria-label={`${dayTitle(d)}${list.length ? `, ${list.length} loggat` : plus ? ", inget loggat, lägg till" : ""}`}
+                          className="relative rounded-lg border flex flex-col items-center justify-between py-1"
+                          style={{ minHeight: 48, borderColor: isToday ? ACCENT : sel ? ACCENT : LINE, borderWidth: isToday || sel ? 2 : 1,
+                                   backgroundColor: sel ? SUBTLE : CARD, opacity: dim ? 0.35 : future ? 0.5 : 1, color: INK }}>
+                    <span className="text-xs font-semibold" style={{ color: future ? FAINT : INK }}>{parseInt(d.slice(8), 10)}</span>
+                    {pain && <span data-testid="cal-pain" className="absolute rounded-full" style={{ top: 4, right: 4, width: 6, height: 6, backgroundColor: DANGER }} />}
+                    {list.length > 0 ? (
+                      <span className="flex items-center gap-0.5" style={{ minHeight: 12 }}>
+                        {dots.slice(0, 3).map((c, k) => <span key={k} data-testid="cal-dot" className="inline-block rounded-full" style={{ width: 7, height: 7, backgroundColor: c }} />)}
+                        {dots.length > 3 && <Plus size={8} style={{ color: MUTED }} />}
+                        {off && (off.kind === "sick" ? <Thermometer size={12} data-testid="cal-off" style={{ color: MUTED }} /> : <Moon size={12} data-testid="cal-off" style={{ color: MUTED }} />)}
+                      </span>
+                    ) : plus ? (
+                      <Plus size={16} data-testid="cal-plus" style={{ color: MUTED }} />
+                    ) : <span style={{ minHeight: 12 }} />}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+        <p className="text-xs mt-2" style={{ color: MUTED }}>Tryck på ett plus för att logga en dag du missat.</p>
+
+        {histSelDay && (
+          <div className="mt-4" data-testid="cal-preview">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-bold" style={{ color: MUTED }} data-testid="cal-preview-title">{dayTitle(histSelDay).toUpperCase()}</div>
+              {histSelDay <= today && (
+                <button type="button" data-testid="cal-preview-add" aria-label="Logga mer den här dagen" title="Logga mer den här dagen"
+                        onClick={() => openNewSheet(histSelDay)} className="p-2 rounded hover-soft">
+                  <Plus size={18} style={{ color: ACCENT }} />
+                </button>
+              )}
+            </div>
+            <div className="space-y-2">{selEntries.map((e) => renderEntryRow(e, "hist"))}</div>
+          </div>
+        )}
+        {!histSelDay && histUserEntries.length === 0 && (
+          <p className="text-sm mt-3" style={{ color: MUTED }} data-testid="cal-none">Inga pass loggade den här månaden ännu.</p>
+        )}
+      </div>
+    );
+  }
+
   function renderEntryRow(e, mode) {
                     const isExpanded = expandedIds.has(e.id);
                     const hasNote = e.anteckningar && e.anteckningar.trim().length > 0;
@@ -2795,6 +2915,21 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
               </div>
             </div>
 
+            {!histSearching && (
+              <div role="group" aria-label="Visa som" data-testid="hist-mode" className="flex w-full rounded-lg border overflow-hidden" style={{ borderColor: LINE2 }}>
+                {[["list", "Lista"], ["cal", "Kalender"]].map(([k, label], i) => {
+                  const on = histMode === k;
+                  return (
+                    <button key={k} type="button" data-testid={`hist-mode-${k}`} aria-pressed={on} onClick={() => setHistMode(k)}
+                            className="flex-1 py-2 text-sm font-semibold"
+                            style={{ backgroundColor: on ? ACCENT : CARD, color: on ? ON_ACCENT : CTRL, borderLeft: i ? `1px solid ${LINE2}` : "none" }}>
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
             {!histSearching && (() => {
               const nowKey = monthKeyOf(todayISO());
               const firstKey = allMonths[0] || nowKey;
@@ -2827,7 +2962,8 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
             })()}
 
             <div>
-              <div className="relative">
+              <div className="flex items-center gap-2">
+              <div className="relative flex-1">
                 <Search size={16} className="absolute" style={{ left: 12, top: 13, color: MUTED }} />
                 <input type="text" value={histQuery} onChange={(e) => setHistQuery(e.target.value)} placeholder="Sök" data-testid="hist-search" aria-label="Sök"
                        className="border rounded-lg py-2 text-sm w-full" style={{ borderColor: LINE2, paddingLeft: 36, paddingRight: 40, minHeight: 42 }} />
@@ -2838,6 +2974,19 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                   </button>
                 )}
               </div>
+              <button type="button" data-testid="hist-filter-toggle" aria-expanded={histFiltersOpen} aria-label="Filter" title="Filter"
+                      onClick={() => setHistFiltersOpen((o) => !o)}
+                      className="relative shrink-0 rounded-lg border flex items-center justify-center"
+                      style={{ width: 42, height: 42, borderColor: histFiltersOpen || histFiltering ? ACCENT : LINE2, backgroundColor: histFiltersOpen ? SUBTLE : CARD }}>
+                <SlidersHorizontal size={18} style={{ color: histFiltering ? ACCENT : MUTED }} />
+                {histFiltering && (
+                  <span data-testid="hist-filter-count" className="absolute flex items-center justify-center rounded-full text-xs font-bold"
+                        style={{ top: -6, right: -6, minWidth: 18, height: 18, padding: "0 4px", backgroundColor: ACCENT, color: ON_ACCENT }}>
+                    {(histFilters.pain ? 1 : 0) + (histFilters.sport ? 1 : 0) + (histFilters.typ ? 1 : 0) + (histFilters.part ? 1 : 0)}
+                  </span>
+                )}
+              </button>
+              </div>
               {histSearching && (
                 <p className="text-xs mt-1.5" data-testid="hist-searching" style={{ color: MUTED }}>
                   Söker i alla månader{histLoaded ? ` · ${histShown.length === 1 ? "1 träff" : `${histShown.length} träffar`}` : ""}
@@ -2845,6 +2994,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
               )}
             </div>
 
+            {histFiltersOpen && (
             <div className="flex flex-wrap gap-2 items-center" data-testid="hist-filters">
               <button type="button" data-testid="hist-f-pain" aria-pressed={histFilters.pain}
                       onClick={() => setHistFilters((f) => ({ ...f, pain: !f.pain }))}
@@ -2862,7 +3012,8 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 </button>
               )}
             </div>
-            {histOffCount > 0 && (
+            )}
+            {histOffCount > 0 && !histCalOn && (
               <button type="button" onClick={toggleHideOffDays} data-testid="hist-toggle-offdays" aria-pressed={hideOffDays}
                       title={hideOffDays ? "Visa vilo- och sjukdagar" : "Dölj vilo- och sjukdagar"}
                       className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold border bg-transparent"
@@ -2874,6 +3025,8 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
 
             {!histLoaded ? (
               <p className="text-sm" style={{ color: MUTED }}>Laddar…</p>
+            ) : histCalOn ? (
+              renderHistCalendar()
             ) : histGroups.length === 0 ? (
               <p className="text-sm" style={{ color: MUTED }} data-testid="hist-empty">
                 {histSearching || histFiltering ? "Inga träffar."
@@ -3135,7 +3288,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                  style={{ height: sheetVv && sheetVv.kb ? "calc(100% - 12px)" : "calc(100% - 92px)", color: INK }}>
               <div className="flex items-center justify-between px-4 py-3 border-b shrink-0" style={{ borderColor: LINE }}>
                 <div className="flex items-center gap-1.5 text-sm font-bold" style={{ color: ACCENT_DARK }}>
-                  <Pencil size={14} /> Redigerar loggat pass
+                  <Pencil size={14} /> {editingId ? "Redigerar loggat pass" : `Logga ${dayTitle(form.date)}`}
                 </div>
                 <button type="button" aria-label="Stäng" data-testid="sheet-close" onClick={requestCloseSheet} className="p-2 rounded hover-soft">
                   <X size={18} style={{ color: MUTED }} />

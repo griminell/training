@@ -69,6 +69,8 @@ with sync_playwright() as pw:
         tabs = [b.inner_text().strip() for b in P.locator("div.flex.gap-2.mb-5.border-b button").all()]
         check("1 Tabs are Logga pass, Statistik, Historik (in that order)", tabs == ["Logga pass", "Statistik", "Historik"], str(tabs))
         tab(P, "Historik"); P.wait_for_timeout(600)
+        check("1 Filters are hidden until the filter button is tapped", P.locator("[data-testid=hist-filters]").count() == 0)
+        P.locator("[data-testid=hist-filter-toggle]").click(); P.wait_for_timeout(200)
         w = P.evaluate("() => [document.documentElement.scrollWidth, window.innerWidth]")
         check("1 No horizontal scroll at 390 px", w[0] <= w[1], str(w))
         check("1 Search field says just 'Sök'", P.locator("[data-testid=hist-search]").get_attribute("placeholder") == "Sök")
@@ -222,6 +224,7 @@ with sync_playwright() as pw:
         # 15. dark mode
         ctx, P = open_app(browser, port, "niva", "dark", "dark")
         tab(P, "Historik"); P.wait_for_timeout(600)
+        P.locator("[data-testid=hist-filter-toggle]").click(); P.wait_for_timeout(200)
         P.locator("[data-testid=hist-f-pain]").click(); P.wait_for_timeout(300)
         P.screenshot(path=str(SHOTS / "historik_mörkt.png"), full_page=True)
         bad = P.evaluate("""() => { const out = []; document.querySelectorAll('[data-testid=history] *').forEach(el => { const c = getComputedStyle(el).backgroundColor; const m = c.match(/\\d+/g); if (m && m.length >= 3 && c !== 'rgba(0, 0, 0, 0)' && (+m[0] + +m[1] + +m[2]) / 3 > 215) out.push(el.tagName + ':' + c); }); return out; }""")
