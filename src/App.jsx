@@ -3,12 +3,18 @@ import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun } from "lucide-react";
+import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun, History, Search } from "lucide-react";
 
-export const APP_VERSION = "1.7.2";
+export const APP_VERSION = "1.7.3";
 export const APP_DATE = "2026-10-21";
 
 const CHANGELOG = [
+  { version: "1.7.3", date: "2026-10-21", items: [
+    "Ny flik Historik: bläddra månad för månad med veckorubriker och veckosummor (pass, tid, belastning, distans, vilo- och sjukdagar och högsta smärta per kroppsdel)",
+    "Sök: letar i sammanfattning, smärtnoteringar, kroppsdelar, aktiviteter och träningstyper. När du skriver söker den i alla månader",
+    "Filter: Bara med smärta, Aktivitet, Träningstyp och Kroppsdel. Filtren kan kombineras",
+    "Smärta syns som små markeringar under raden (till exempel Häl V 6)",
+    "Pennan i Historik öppnar passet i en panel som glider upp, så du slipper lämna fliken. Det du höll på att skriva på Logga pass finns kvar när du stänger panelen" ] },
   { version: "1.7.2", date: "2026-10-21", items: [
     "Ansträngning (1–10) väljs nu med en slider, som smärtan. Ingen siffra är vald från början, tryck eller dra för att välja, och kryssknappen tar bort valet",
     "Sliderns ändsiffror (1 och 10, 0 och 10 för smärta) står på samma rad som slidern, så den tar mindre plats",
@@ -1208,8 +1214,86 @@ function PeriodStepper({ id, canPrev, canNext, onPrev, onNext, prevLabel, nextLa
 }
 const addMonthKey = (key, n) => { const [y, m] = key.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1, 12)); return d.toISOString().slice(0, 7); };
 
+// ---- Historik: search, filters and week summaries ----
+const histPartKey = (p) => (p.part === "other" ? `other:${(p.label || "").trim().toLowerCase()}` : `${p.part}:${p.pos || ""}`);
+const histPartName = (p) => { const pi = posInfo(p.part, p.pos); return `${painName(p)}${pi ? " " + pi.label : ""}`; };
+const isoDayLabel = (iso) => `${iso.slice(8)}/${iso.slice(5, 7)}`;
+// Everything a search can hit, lower-cased: note, pain notes and body parts, activities, types, kind and date.
+function histHaystack(e) {
+  return [
+    e.anteckningar,
+    ...(e.pain || []).flatMap((p) => [histPartName(p), p.note || ""]),
+    ...(e.sport || []).map((c) => labelOf(SPORTS, c)),
+    ...(e.typ || []).map((c) => labelOf(TYPES, c)),
+    isOffDay(e) ? kindLabel(e.kind) : "",
+    isoDayLabel(e.date), e.date,
+  ].join(" ").toLowerCase();
+}
+function filterHistory(list, f) {
+  const terms = (f.query || "").toLowerCase().split(/\s+/).filter(Boolean);
+  return list.filter((e) => {
+    if (f.hideOff && isOffDay(e)) return false;
+    if (f.painOnly && !(e.pain || []).length) return false;
+    if (f.sport && !(e.sport || []).includes(f.sport)) return false;
+    if (f.typ && !(e.typ || []).includes(f.typ)) return false;
+    if (f.part && !(e.pain || []).some((p) => histPartKey(p) === f.part)) return false;
+    if (terms.length) { const h = histHaystack(e); if (!terms.every((t) => h.includes(t))) return false; }
+    return true;
+  });
+}
+// Weeks (Monday-based), newest first; days newest first inside a week.
+function weekGroups(list) {
+  const by = {};
+  list.forEach((e) => { (by[mondayOf(e.date)] = by[mondayOf(e.date)] || []).push(e); });
+  return Object.keys(by).sort().reverse().map((monday) => ({ monday, entries: by[monday].slice().sort((a, b) => b.date.localeCompare(a.date)) }));
+}
+function fmtDuration(min) {
+  const t = Math.round(min), h = Math.floor(t / 60), m = t % 60;
+  return h && m ? `${h} h ${m} min` : h ? `${h} h` : `${m} min`;
+}
+// Same arithmetic as the statistics page: load = minutes x effort.
+function weekSummary(entries) {
+  const passes = entries.filter(isRealPass);
+  const minutes = passes.reduce((s, e) => s + tidSeconds(e.tid) / 60, 0);
+  const load = Math.round(passes.reduce((s, e) => s + (parseFloat(e.tid) || 0) * (parseFloat(e.kansla) || 0), 0));
+  const km = passes.reduce((s, e) => s + distNum(e), 0);
+  const rest = entries.filter((e) => e.kind === "rest").length, sick = entries.filter((e) => e.kind === "sick").length;
+  const pain = {};
+  entries.forEach((e) => (e.pain || []).forEach((p) => {
+    const k = histPartKey(p), v = Number(p.value) || 0;
+    if (!pain[k] || pain[k].max < v) pain[k] = { name: histPartName(p), short: painShort({ ...p, value: "" }).trim(), max: v };
+  }));
+  const painList = Object.values(pain).sort((a, b) => b.max - a.max || a.name.localeCompare(b.name, "sv"));
+  const parts = [
+    passes.length ? `${passes.length} pass` : null,
+    minutes > 0 ? fmtDuration(minutes) : null,
+    load > 0 ? `belastning ${load.toLocaleString("sv-SE")}` : null,
+    km > 0 ? `${fmtKm(km)} km` : null,
+    rest ? (rest === 1 ? "1 vilodag" : `${rest} vilodagar`) : null,
+    sick ? (sick === 1 ? "1 sjukdag" : `${sick} sjukdagar`) : null,
+  ].filter(Boolean);
+  return { text: parts.join(" · ") || "Inga pass", painList };
+}
+// A pill that looks like a button but is a native select underneath (works well on phones).
+function FilterSelect({ testId, label, value, options, onChange }) {
+  const cur = options.find((o) => o.value === value);
+  const on = !!value;
+  return (
+    <span className="relative inline-flex items-center gap-1 px-3 rounded-full text-sm border select-none" data-testid={`${testId}-pill`}
+          style={{ minHeight: 40, borderColor: on ? ACCENT : LINE2, backgroundColor: on ? ACCENT : CARD, color: on ? ON_ACCENT : CTRL, opacity: options.length || on ? 1 : 0.5 }}>
+      <span className="font-semibold">{on ? `${label}: ${cur ? cur.short : value}` : label}</span>
+      <ChevronDown size={14} />
+      <select aria-label={label} data-testid={testId} value={value} disabled={!options.length && !on}
+              onChange={(e) => onChange(e.target.value)} className="absolute inset-0 w-full h-full cursor-pointer" style={{ opacity: 0 }}>
+        <option value="">Alla</option>
+        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </span>
+  );
+}
+
 export default function TraningsDagbok({ connLink, onDisconnect }) {
-  const [view, setView] = useState("logga");
+  const [view, setView] = useState("logga"); // "logga" | "hist" | "stats"
   const [allMonths, setAllMonths] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState(monthKeyOf(todayISO()));
   const [monthEntries, setMonthEntries] = useState([]);
@@ -1271,6 +1355,19 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   };
   const [form, setForm] = useState(emptyForm);
   const [statsUser, setStatsUser] = useState(getMe());
+  // Historik: own month, person (follows the person who is logging), search and filters
+  const [histMonth, setHistMonth] = useState(monthKeyOf(todayISO()));
+  const [histUser, setHistUser] = useState(getMe());
+  const [histQuery, setHistQuery] = useState("");
+  const [histFilters, setHistFilters] = useState({ pain: false, sport: "", typ: "", part: "" });
+  const [histCollapsed, setHistCollapsed] = useState(() => new Set());
+  const [histMonthData, setHistMonthData] = useState({ key: null, data: [] });
+  const [histAllData, setHistAllData] = useState(null);
+  // Edit panel (bottom sheet) in Historik: the form lives in the panel; what was in the log form is put aside and put back on close.
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetBase, setSheetBase] = useState("");
+  const sheetOpenRef = React.useRef(false);
+  const sheetStash = React.useRef(null);
   const [users, setUsers] = useState(DEFAULT_USERS);
   const [showUsers, setShowUsers] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
@@ -1284,9 +1381,10 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   // Statistics start on the person who is logging, and follow when the person is switched.
   // (Picking another person under "Visar statistik för" lasts until the tab or the person changes.)
   useLayoutEffect(() => { setStatsUser(form.user); }, [form.user, view]);
+  useLayoutEffect(() => { if (!sheetOpenRef.current) setHistUser(form.user); }, [form.user, view]);
   // The pill highlights at once; the heavy chart rendering follows in the background (interruptible), so taps are never blocked.
   const statsUserShown = useDeferredValue(statsUser);
-  const activeUserId = view === "stats" ? statsUserShown : form.user;
+  const activeUserId = view === "stats" ? statsUserShown : view === "hist" ? histUser : form.user;
   const [themeMode, setThemeModeState] = useState(getThemeMode);
   const [sysDark, setSysDark] = useState(systemPrefersDark);
   const darkMode = themeMode === "dark" || (themeMode === "auto" && sysDark);
@@ -1443,6 +1541,32 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     return () => { dead = true; };
   }, [statsScope, statsWeek, liveTick]);
 
+  // Historik data: one month, or every month while a search is active. Reloads on live sync and after our own saves.
+  const histSearching = histQuery.trim() !== "";
+  useEffect(() => {
+    if (view !== "hist" || histSearching) return undefined;
+    let dead = false;
+    (async () => {
+      const r = await safeGetResult(`entries:${histMonth}`);
+      if (dead || !r.ok) return;
+      setHistMonthData({ key: histMonth, data: r.data || [] });
+    })();
+    return () => { dead = true; };
+  }, [view, histMonth, histSearching, liveTick]);
+  useEffect(() => {
+    if (view !== "hist" || !histSearching) return undefined;
+    let dead = false;
+    (async () => {
+      const months = allMonths.length ? allMonths : await safeListMonths();
+      const results = await Promise.all(months.map((m) => safeGet(`entries:${m}`)));
+      if (dead) return;
+      const merged = [];
+      results.forEach((r) => { if (r) merged.push(...r); });
+      setHistAllData(merged);
+    })();
+    return () => { dead = true; };
+  }, [view, histSearching, allMonths, liveTick]);
+
   // ---- Vanligaste valen: counted once when the app opens (never while logging) ----
   const [usage, setUsage] = useState(null); // { userId: { sport: {code: n}, typ: {code: n}, pain: {part: n} } }
   useEffect(() => {
@@ -1484,6 +1608,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     const r = await safeGetResult(`entries:${selectedMonthRef.current}`);
     if (r.ok) setMonthEntries(r.data || []);
     setAllEntries(null);
+    setLiveTick((t) => t + 1);
   };
   const flushChain = React.useRef(Promise.resolve());
   const flushing = React.useRef(false);
@@ -1576,28 +1701,68 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     });
   }
 
-  function startEdit(entry) {
+  const entryToForm = (entry) => ({
+    date: entry.date,
+    user: entry.user || "niva",
+    sport: entry.sport || [],
+    typ: entry.typ || [],
+    tid: entry.tid || "",
+    distance: entry.distance || "",
+    kansla: entry.kansla || "",
+    anteckningar: entry.anteckningar || "",
+    sleep: entry.sleep || "",
+    energy: entry.energy || "",
+    pain: painToForm(entry.pain),
+    kind: isOffDay(entry) ? entry.kind : "pass",
+  });
+  function startEdit(entry, opts) {
     setEditingPending(null);
     setEditingId(entry.id);
     setEditingOriginalMonth(monthKeyOf(entry.date));
-    setForm({
-      date: entry.date,
-      user: entry.user || "niva",
-      sport: entry.sport || [],
-      typ: entry.typ || [],
-      tid: entry.tid || "",
-      distance: entry.distance || "",
-      kansla: entry.kansla || "",
-      anteckningar: entry.anteckningar || "",
-      sleep: entry.sleep || "",
-      energy: entry.energy || "",
-      pain: painToForm(entry.pain),
-      kind: isOffDay(entry) ? entry.kind : "pass",
-    });
-    if (typeof window !== "undefined" && window.scrollTo) {
+    setForm(entryToForm(entry));
+    if (!(opts && opts.noScroll) && typeof window !== "undefined" && window.scrollTo) {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }
+  // ---- Edit panel in Historik ----
+  const sheetSig = (f) => JSON.stringify({ ...f, pain: (f.pain || []).map(({ k, ...r }) => r) });
+  function openEditSheet(entry) {
+    sheetStash.current = { form, editingId, editingOriginalMonth, editingPending };
+    const f = entryToForm(entry);
+    sheetOpenRef.current = true;
+    startEdit(entry, { noScroll: true });
+    setSheetBase(sheetSig(f));
+    setFormEpoch((n) => n + 1);
+    setSaveError(null);
+    setSheetOpen(true);
+  }
+  // Put back what was in the log form before the panel opened.
+  function closeSheet() {
+    const st = sheetStash.current;
+    sheetStash.current = null;
+    sheetOpenRef.current = false;
+    if (st) {
+      setForm(st.form); setEditingId(st.editingId); setEditingOriginalMonth(st.editingOriginalMonth); setEditingPending(st.editingPending);
+    }
+    setSheetOpen(false);
+    setSaveError(null);
+    setFormEpoch((n) => n + 1);
+  }
+  function requestCloseSheet() {
+    if (saving) return;
+    if (sheetSig(form) !== sheetBase) setConfirmDlg({ kind: "discard" });
+    else closeSheet();
+  }
+  const requestCloseRef = React.useRef(requestCloseSheet);
+  requestCloseRef.current = requestCloseSheet;
+  useEffect(() => {
+    if (!sheetOpen) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e) => { if (e.key === "Escape") requestCloseRef.current(); };
+    document.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = prev; document.removeEventListener("keydown", onKey); };
+  }, [sheetOpen]);
 
   // Load a queued (Ej sparat) pass back into the form. Saving replaces the queued pass.
   function startEditPending(a) {
@@ -1691,11 +1856,15 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     await flush();
     const left = pendingRef.current.find((a) => a.qid === qid);
     if (left && !left.attempts) mutatePending((l) => l.map((a) => (a.qid === qid ? { ...a, attempts: 1 } : a)));
-    setEditingId(null);
-    setEditingOriginalMonth(null);
-    setEditingPending(null);
-    setForm((f) => ({ ...emptyForm, user: f.user }));
-    setFormEpoch((n) => n + 1);
+    if (sheetOpenRef.current) {
+      closeSheet();
+    } else {
+      setEditingId(null);
+      setEditingOriginalMonth(null);
+      setEditingPending(null);
+      setForm((f) => ({ ...emptyForm, user: f.user }));
+      setFormEpoch((n) => n + 1);
+    }
     setSavedFlash(left ? "queued" : "ok");
     setTimeout(() => setSavedFlash(false), left ? 3200 : 1800);
     setSaving(false);
@@ -1720,6 +1889,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       return;
     }
     if (d.kind === "disconnect") { onDisconnect(); return; }
+    if (d.kind === "discard") { setConfirmDlg(null); closeSheet(); return; }
     // Deleting an already saved pass needs a connection; no queueing for this in 1.5.0.
     setConfirmBusy(true);
     setConfirmError(null);
@@ -1731,6 +1901,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     if (r.status === "ok") {
       if (key === selectedMonthRef.current) setMonthEntries(r.value);
       setAllEntries(null);
+      setLiveTick((t) => t + 1);
       if (editingId === id) cancelEdit();
       setConfirmDlg(null);
     } else {
@@ -1981,6 +2152,29 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     return { totalPass, totalTidMin, avgKansla, totalLoad, totalKm };
   }, [dataForStats]);
 
+  // ---- Historik: what is shown ----
+  const histScope = useMemo(() => (histSearching ? (histAllData || []) : (histMonthData.key === histMonth ? histMonthData.data : [])),
+                            [histSearching, histAllData, histMonthData, histMonth]);
+  const histLoaded = histSearching ? histAllData !== null : histMonthData.key === histMonth;
+  const histUserEntries = useMemo(() => histScope.filter((e) => (e.user || "niva") === histUser && !queuedIds.has(e.id)), [histScope, histUser, queuedIds]);
+  const histOptions = useMemo(() => {
+    const cnt = (get) => { const m = {}; histUserEntries.forEach((e) => get(e).forEach((c) => { m[c] = (m[c] || 0) + 1; })); return m; };
+    const sp = cnt((e) => (isRealPass(e) ? e.sport || [] : [])), ty = cnt((e) => (isRealPass(e) ? e.typ || [] : []));
+    const pm = {};
+    histUserEntries.forEach((e) => (e.pain || []).forEach((q) => { const k = histPartKey(q); pm[k] = pm[k] || { label: histPartName(q), n: 0 }; pm[k].n++; }));
+    return {
+      sport: SPORTS.filter((x) => sp[x.code]).map((x) => ({ value: x.code, label: `${x.label} (${sp[x.code]})`, short: x.label })),
+      typ: TYPES.filter((x) => ty[x.code]).map((x) => ({ value: x.code, label: `${x.label} (${ty[x.code]})`, short: x.label })),
+      part: Object.entries(pm).sort((a, b) => b[1].n - a[1].n || a[1].label.localeCompare(b[1].label, "sv")).map(([k, v]) => ({ value: k, label: `${v.label} (${v.n})`, short: v.label })),
+    };
+  }, [histUserEntries]);
+  const histShown = useMemo(() => filterHistory(histUserEntries, { query: histQuery, painOnly: histFilters.pain, sport: histFilters.sport, typ: histFilters.typ, part: histFilters.part, hideOff: hideOffDays }),
+                            [histUserEntries, histQuery, histFilters, hideOffDays]);
+  const histGroups = useMemo(() => weekGroups(histShown), [histShown]);
+  const histOffCount = histUserEntries.filter(isOffDay).length;
+  const histFiltering = histFilters.pain || !!histFilters.sport || !!histFilters.typ || !!histFilters.part;
+  const toggleWeek = (monday) => setHistCollapsed((prev) => { const n = new Set(prev); if (n.has(monday)) n.delete(monday); else n.add(monday); return n; });
+
   const sortedMonthEntries = useMemo(
     () => monthEntries
       .filter((e) => (e.user || "niva") === form.user && !queuedIds.has(e.id))
@@ -2003,6 +2197,297 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
 
   const painOk = form.pain.every(painRowOk);
   const canSave = form.date && (isOff || form.sport.length > 0) && painOk && !saving;
+
+  // The log form is rendered in two places: on the Logga pass tab and in the edit panel of Historik (never both at once).
+  function renderFormFields() {
+    return (
+      <>
+              {/* What is logged (Pass / Vilodag / Sjukdag) comes before the date, so the date is not forgotten when logging several days */}
+              <div role="group" aria-label="Typ" data-testid="kind-group" className="flex w-full rounded-lg border overflow-hidden mb-4"
+                   style={{ borderColor: LINE2 }}>
+                {["pass", "rest", "sick"].map((k, i) => {
+                  const on = form.kind === k;
+                  return (
+                    <button key={k} type="button" data-testid={`kind-${k}`} aria-pressed={on}
+                            onClick={() => setForm((f) => ({ ...f, kind: k }))}
+                            className="flex-1 py-2 text-sm font-semibold"
+                            style={{ backgroundColor: on ? ACCENT : CARD, color: on ? ON_ACCENT : CTRL, borderLeft: i ? `1px solid ${LINE2}` : "none" }}>
+                      {kindLabel(k)}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-2 mb-4">
+                <CalendarDays size={18} style={{ color: ACCENT }} />
+                <input
+                  type="date"
+                  value={form.date}
+                  onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+                  className="border rounded-lg px-3 py-2 text-sm"
+                  style={{ borderColor: LINE2 }}
+                />
+              </div>
+
+              {!isOff && !editingId && !editingPending && lastText && (
+                <button type="button" onClick={applyLast} data-testid="same-as-last"
+                        className="w-full text-left rounded-lg border px-3 py-2 text-sm mb-4 flex items-start gap-2"
+                        style={{ borderColor: ACCENT, color: ACCENT_DARK }}>
+                  <Repeat size={15} className="shrink-0 mt-0.5" />
+                  <span><span className="font-bold">Samma som senast:</span> {lastText}</span>
+                </button>
+              )}
+
+              {!isOff && (<>
+              <div className="mb-4">
+                <div className="text-xs font-bold mb-2" style={{ color: ACCENT_DARK }}>
+                  AKTIVITET
+                </div>
+                <ChoiceGroup key={`sport-${formEpoch}`} testId="sport-group" items={SPORTS} defaults={DEFAULT_SPORTS} color={ACCENT}
+                             counts={(usage && usage[form.user] && usage[form.user].sport) || NO_COUNTS}
+                             selected={form.sport} onToggle={toggleSport} />
+              </div>
+
+              <div className="mb-4">
+                <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
+                  TRÄNINGSTYP
+                </div>
+                <ChoiceGroup key={`typ-${formEpoch}`} testId="typ-group" items={TYPES} defaults={DEFAULT_TYPES} color={NEUTRAL_FILL}
+                             counts={(usage && usage[form.user] && usage[form.user].typ) || NO_COUNTS}
+                             selected={form.typ} onToggle={toggleTyp} />
+              </div>
+
+              <div className="mb-4 flex gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
+                    TID (MIN : SEK)
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="text" inputMode="numeric" placeholder="min" data-testid="tid-min" aria-label="Minuter"
+                      value={splitTid(form.tid).m}
+                      onChange={(e) => setForm((f) => ({ ...f, tid: joinTid(e.target.value.replace(/\D/g, "").slice(0, 4), splitTid(f.tid).s) }))}
+                      className="border rounded-lg px-3 py-2 text-sm w-full min-w-0"
+                      style={{ borderColor: LINE2 }}
+                    />
+                    <span className="text-sm" style={{ color: MUTED }}>:</span>
+                    <input
+                      type="text" inputMode="numeric" placeholder="sek" data-testid="tid-sec" aria-label="Sekunder (valfritt)"
+                      value={splitTid(form.tid).s}
+                      onChange={(e) => setForm((f) => ({ ...f, tid: joinTid(splitTid(f.tid).m, e.target.value.replace(/\D/g, "").slice(0, 2)) }))}
+                      className="border rounded-lg px-3 py-2 text-sm w-full min-w-0"
+                      style={{ borderColor: LINE2 }}
+                    />
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
+                    DISTANS (KM)
+                  </div>
+                  <input
+                    type="text" inputMode="decimal" placeholder="t.ex. 5,2" data-testid="distance-input" aria-label="Distans i kilometer"
+                    value={String(form.distance || "").replace(".", ",")}
+                    onChange={(e) => setForm((f) => ({ ...f, distance: cleanDistance(e.target.value) }))}
+                    className="border rounded-lg px-3 py-2 text-sm w-full"
+                    style={{ borderColor: LINE2 }}
+                  />
+                </div>
+              </div>
+              <div className="mb-4">
+                <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
+                  ANSTRÄNGNING (1–10) <span className="font-normal ml-1" style={{ color: FAINT }}>Skala enligt Borg CR10</span>
+                </div>
+                <RangeSlider value={form.kansla} onChange={(v) => setForm((f) => ({ ...f, kansla: v }))} min={1} max={10} testId="effort" label="Ansträngning 1 till 10" />
+                <p className="text-xs" style={{ color: HINT }}>
+                  1 = Mycket lätt · 3 = Måttligt · 5 = Tungt · 7 = Mycket tungt · 10 = Maximalt
+                </p>
+              </div>
+              </>)}
+              <WellbeingSection key={`well-${formEpoch}-${editingId || (editingPending && editingPending.qid) || ""}`}
+                                form={form} setForm={setForm} isOff={isOff}
+                                counts={(usage && usage[form.user] && usage[form.user].pain) || NO_COUNTS} />
+              <div className="mb-4">
+                <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
+                  SAMMANFATTNING
+                </div>
+                <textarea
+                  value={form.anteckningar}
+                  onChange={(e) => setForm((f) => ({ ...f, anteckningar: e.target.value }))}
+                  placeholder={isOff ? (form.kind === "sick" ? "Hur mår du? Något som är bra att komma ihåg?" : "Hur kändes kroppen? Varför vila?") : "Vad gjorde ni? Hur kändes det?"}
+                  rows={3}
+                  className="border rounded-lg px-3 py-2 text-sm w-full resize-none"
+                  style={{ borderColor: LINE2 }}
+                />
+              </div>
+
+      </>
+    );
+  }
+  function renderFormActions(inSheet) {
+    return (
+      <>
+              <div className="flex gap-2">
+              <button
+                onClick={handleSave}
+                disabled={!canSave}
+                className="flex-1 py-2.5 rounded-lg text-sm font-bold text-on-accent transition-opacity flex items-center justify-center gap-2"
+                style={{ backgroundColor: ACCENT, opacity: canSave ? 1 : 0.45 }}
+              >
+                {saving ? (<><Loader2 size={16} className="animate-spin" /> Sparar…</>)
+                  : savedFlash === "queued" ? (<><AlertTriangle size={16} /> Ej sparat, försöker igen</>)
+                  : savedFlash ? (<><Check size={16} /> Sparat</>)
+                  : (editingId || editingPending) ? "Spara ändringar"
+                  : form.kind === "rest" ? "Spara vilodag" : form.kind === "sick" ? "Spara sjukdag" : "Spara pass"}
+              </button>
+              {/* Small outline button, no fill. Editing: it cancels the edit. Otherwise: empties what was filled in (date, user and kind stay). */}
+              <button type="button" data-testid="clear-form"
+                      onClick={inSheet ? requestCloseSheet : (editingId || editingPending) ? cancelEdit : clearForm}
+                      disabled={!(editingId || editingPending) && !formDirty}
+                      className="px-4 py-2.5 rounded-lg text-sm font-semibold border bg-transparent transition-opacity"
+                      style={{ borderColor: ACCENT, color: ACCENT_DARK, opacity: (editingId || editingPending || formDirty) ? 1 : 0.45 }}>
+                {(editingId || editingPending) ? "Avbryt" : "Rensa"}
+              </button>
+              </div>
+              {!painOk && (
+                <p className="text-xs mt-2" data-testid="pain-hint" style={{ color: ERR }}>Fyll i smärta (0–10) för alla kroppsdelar, eller ta bort dem.</p>
+              )}
+              {saveError && (
+                <p className="text-sm mt-2" role="alert" data-testid="save-error" style={{ color: ERR }}>{saveError}</p>
+              )}
+              {!isOff && form.sport.length === 0 && (
+                <p className="text-xs mt-2" style={{ color: MUTED }}>
+                  Välj minst en aktivitet för att spara.
+                </p>
+              )}
+      </>
+    );
+  }
+
+  // One row of a list (used by "Loggade pass" and by Historik; mode "hist" shows pain chips and opens the edit panel).
+  function renderEntryRow(e, mode) {
+                    const isExpanded = expandedIds.has(e.id);
+                    const hasNote = e.anteckningar && e.anteckningar.trim().length > 0;
+                    const preview = hasNote && e.anteckningar.length > 42
+                      ? e.anteckningar.slice(0, 42) + "…"
+                      : e.anteckningar;
+                    const off = isOffDay(e);
+                    const pains = e.pain || [];
+                    // "Häl V 6" when it fits on the row, otherwise just a dot
+                    const shownFacts = [`${e.date.slice(8)}/${e.date.slice(5, 7)}`, off ? kindLabel(e.kind) : (e.sport || []).join(" "), ...(off ? [] : [(e.typ || []).join(" "), fmtTid(e.tid), distNum(e) ? `${fmtKm(distNum(e))} km` : "", e.kansla ? `${e.kansla}/10` : ""])].filter(Boolean);
+                    const factsLen = shownFacts.join(" · ").length;
+                    const painInline = pains.length === 1 && factsLen + 3 + painShort(pains[0]).length <= 36;
+                    return (
+                      <div key={e.id} data-testid={off ? "offday-row" : "pass-row"} className="rounded-lg border text-sm overflow-hidden"
+                           style={{ borderColor: LINE, backgroundColor: off ? OFFROW : CARD }}>
+                        <div
+                          onClick={() => toggleExpand(e.id)}
+                          className="flex items-center justify-between px-3 py-2 cursor-pointer select-none"
+                        >
+                          <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                            <ChevronDown
+                              size={14}
+                              className="shrink-0 transition-transform"
+                              style={{
+                                color: MUTED,
+                                transform: isExpanded ? "rotate(0deg)" : "rotate(-90deg)",
+                              }}
+                            />
+                            {/* The facts (date, codes, time, effort) never get cut off; only the note preview is shortened. */}
+                            <div className="min-w-0 flex items-baseline gap-1">
+                              <span className="shrink-0 max-w-full">
+                                <span className="font-semibold mr-2">{e.date.slice(8)}/{e.date.slice(5,7)}</span>
+                                {off ? (
+                                  <span className="inline-flex items-center gap-1" style={{ color: MUTED }}>
+                                    {e.kind === "sick" ? <Thermometer size={14} /> : <Moon size={14} />}{kindLabel(e.kind)}
+                                  </span>
+                                ) : (
+                                  <>
+                                    <span style={{ color: ACCENT_DARK }}>{(e.sport||[]).join(" ")}</span>
+                                    {(e.typ||[]).length > 0 && (
+                                      <span style={{ color: MUTED }}> · {e.typ.join(" ")}</span>
+                                    )}
+                                    {fmtTid(e.tid) && <span data-testid="tid-text" style={{ color: MUTED }}> · {fmtTid(e.tid)}</span>}
+                                    {distNum(e) > 0 && <span data-testid="distance" style={{ color: MUTED }}> · {fmtKm(distNum(e))} km</span>}
+                                    {e.kansla && <span data-testid="effort" style={{ color: MUTED }}> · {e.kansla}/10</span>}
+                                  </>
+                                )}
+                                {mode !== "hist" && pains.length > 0 && (painInline
+                                  ? <span data-testid="pain-badge" style={{ color: DANGER }}> · {painShort(pains[0])}</span>
+                                  : <span data-testid="pain-dot" title="Smärta" aria-label="Smärta" className="inline-block rounded-full align-middle ml-1.5"
+                                          style={{ width: 8, height: 8, backgroundColor: DANGER }} />)}
+                              </span>
+                              {hasNote && !isExpanded && (
+                                <span className="truncate min-w-0 flex-1" style={{ color: FAINT }}>· {preview}</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-0.5 shrink-0 ml-2">
+                            <button
+                              onClick={(ev) => { ev.stopPropagation(); if (mode === "hist") openEditSheet(e); else startEdit(e); }}
+                              className="p-1 rounded hover-soft"
+                              title="Redigera"
+                            >
+                              <Pencil size={14} style={{ color: MUTED }} />
+                            </button>
+                            <button
+                              onClick={(ev) => { ev.stopPropagation(); askDelete(e); }}
+                              className="p-1 rounded hover-soft"
+                              title="Ta bort"
+                            >
+                              <Trash2 size={15} style={{ color: DANGER }} />
+                            </button>
+                          </div>
+                        </div>
+                        {mode === "hist" && pains.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 pb-2" style={{ paddingLeft: "2rem", paddingRight: "0.75rem" }} data-testid="pain-chips">
+                            {pains.map((p, i) => {
+                              const hit = histFilters.part && histPartKey(p) === histFilters.part;
+                              return (
+                                <span key={i} data-testid="pain-chip" data-hit={hit ? "1" : "0"} className="px-2 py-0.5 rounded-full text-xs font-semibold border"
+                                      style={{ borderColor: DANGER, color: hit ? ON_ACCENT : DANGER, backgroundColor: hit ? DANGER : "transparent" }}>
+                                  {painShort(p)}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {isExpanded && (
+                          <div className="px-3 pb-3 pt-0.5" style={{ paddingLeft: "2rem" }}>
+                            {!off && paceOf(e) && (
+                              <p className="text-sm mb-1" data-testid="pace" style={{ color: INK }}>
+                                <span style={{ color: MUTED }}>Tempo </span>{paceOf(e)}
+                              </p>
+                            )}
+                            {(e.sleep || e.energy) && (
+                              <p className="text-sm mb-1" data-testid="well-line" style={{ color: INK }}>
+                                {e.sleep && <><span style={{ color: MUTED }}>Sömn </span>{e.sleep} – {SLEEP_LABELS[Number(e.sleep) - 1]}</>}
+                                {e.sleep && e.energy && <span style={{ color: MUTED }}> · </span>}
+                                {e.energy && <><span style={{ color: MUTED }}>Energi </span>{e.energy} – {ENERGY_LABELS[Number(e.energy) - 1]}</>}
+                              </p>
+                            )}
+                            {pains.length > 0 && (
+                              <div className="mb-1" data-testid="pain-lines">
+                                <div className="text-xs font-bold" style={{ color: MUTED }}>{off ? "SMÄRTA IDAG" : "SMÄRTA UNDER PASSET"}</div>
+                                {pains.map((p, i) => <p key={i} className="text-sm" data-testid="pain-line" style={{ color: INK }}>{painLong(p)}</p>)}
+                              </div>
+                            )}
+                            {hasNote ? (
+                              <div data-testid="note-block" className={(e.sleep || e.energy || pains.length) ? "mt-2 pt-2 border-t" : ""} style={{ borderColor: LINE }}>
+                                {!!(e.sleep || e.energy || pains.length) && <div className="text-xs font-bold" style={{ color: MUTED }}>SAMMANFATTNING</div>}
+                                <p className="text-sm whitespace-pre-wrap" style={{ color: INK }}>
+                                  {e.anteckningar}
+                                </p>
+                              </div>
+                            ) : (
+                              <p className="text-xs italic" style={{ color: FAINT }}>
+                                Ingen sammanfattning för {off ? (e.kind === "sick" ? "den här sjukdagen" : "den här vilodagen") : "det här passet"}.
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+  }
 
   return (
     <div className="w-full" style={{ backgroundColor: PAPER, color: INK }}>
@@ -2134,6 +2619,16 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
           >
             <BarChart3 size={16} /> Statistik
           </button>
+          <button
+            onClick={() => setView("hist")} data-testid="tab-hist"
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors"
+            style={{
+              borderColor: view === "hist" ? ACCENT : "transparent",
+              color: view === "hist" ? ACCENT_DARK : MUTED,
+            }}
+          >
+            <History size={16} /> Historik
+          </button>
         </div>
 
         {queued.length > 0 && (
@@ -2177,157 +2672,8 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 </div>
               )}
 
-              {/* What is logged (Pass / Vilodag / Sjukdag) comes before the date, so the date is not forgotten when logging several days */}
-              <div role="group" aria-label="Typ" data-testid="kind-group" className="flex w-full rounded-lg border overflow-hidden mb-4"
-                   style={{ borderColor: LINE2 }}>
-                {["pass", "rest", "sick"].map((k, i) => {
-                  const on = form.kind === k;
-                  return (
-                    <button key={k} type="button" data-testid={`kind-${k}`} aria-pressed={on}
-                            onClick={() => setForm((f) => ({ ...f, kind: k }))}
-                            className="flex-1 py-2 text-sm font-semibold"
-                            style={{ backgroundColor: on ? ACCENT : CARD, color: on ? ON_ACCENT : CTRL, borderLeft: i ? `1px solid ${LINE2}` : "none" }}>
-                      {kindLabel(k)}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="flex items-center gap-2 mb-4">
-                <CalendarDays size={18} style={{ color: ACCENT }} />
-                <input
-                  type="date"
-                  value={form.date}
-                  onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-                  className="border rounded-lg px-3 py-2 text-sm"
-                  style={{ borderColor: LINE2 }}
-                />
-              </div>
-
-              {!isOff && !editingId && !editingPending && lastText && (
-                <button type="button" onClick={applyLast} data-testid="same-as-last"
-                        className="w-full text-left rounded-lg border px-3 py-2 text-sm mb-4 flex items-start gap-2"
-                        style={{ borderColor: ACCENT, color: ACCENT_DARK }}>
-                  <Repeat size={15} className="shrink-0 mt-0.5" />
-                  <span><span className="font-bold">Samma som senast:</span> {lastText}</span>
-                </button>
-              )}
-
-              {!isOff && (<>
-              <div className="mb-4">
-                <div className="text-xs font-bold mb-2" style={{ color: ACCENT_DARK }}>
-                  AKTIVITET
-                </div>
-                <ChoiceGroup key={`sport-${formEpoch}`} testId="sport-group" items={SPORTS} defaults={DEFAULT_SPORTS} color={ACCENT}
-                             counts={(usage && usage[form.user] && usage[form.user].sport) || NO_COUNTS}
-                             selected={form.sport} onToggle={toggleSport} />
-              </div>
-
-              <div className="mb-4">
-                <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
-                  TRÄNINGSTYP
-                </div>
-                <ChoiceGroup key={`typ-${formEpoch}`} testId="typ-group" items={TYPES} defaults={DEFAULT_TYPES} color={NEUTRAL_FILL}
-                             counts={(usage && usage[form.user] && usage[form.user].typ) || NO_COUNTS}
-                             selected={form.typ} onToggle={toggleTyp} />
-              </div>
-
-              <div className="mb-4 flex gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
-                    TID (MIN : SEK)
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="text" inputMode="numeric" placeholder="min" data-testid="tid-min" aria-label="Minuter"
-                      value={splitTid(form.tid).m}
-                      onChange={(e) => setForm((f) => ({ ...f, tid: joinTid(e.target.value.replace(/\D/g, "").slice(0, 4), splitTid(f.tid).s) }))}
-                      className="border rounded-lg px-3 py-2 text-sm w-full min-w-0"
-                      style={{ borderColor: LINE2 }}
-                    />
-                    <span className="text-sm" style={{ color: MUTED }}>:</span>
-                    <input
-                      type="text" inputMode="numeric" placeholder="sek" data-testid="tid-sec" aria-label="Sekunder (valfritt)"
-                      value={splitTid(form.tid).s}
-                      onChange={(e) => setForm((f) => ({ ...f, tid: joinTid(splitTid(f.tid).m, e.target.value.replace(/\D/g, "").slice(0, 2)) }))}
-                      className="border rounded-lg px-3 py-2 text-sm w-full min-w-0"
-                      style={{ borderColor: LINE2 }}
-                    />
-                  </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
-                    DISTANS (KM)
-                  </div>
-                  <input
-                    type="text" inputMode="decimal" placeholder="t.ex. 5,2" data-testid="distance-input" aria-label="Distans i kilometer"
-                    value={String(form.distance || "").replace(".", ",")}
-                    onChange={(e) => setForm((f) => ({ ...f, distance: cleanDistance(e.target.value) }))}
-                    className="border rounded-lg px-3 py-2 text-sm w-full"
-                    style={{ borderColor: LINE2 }}
-                  />
-                </div>
-              </div>
-              <div className="mb-4">
-                <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
-                  ANSTRÄNGNING (1–10) <span className="font-normal ml-1" style={{ color: FAINT }}>Skala enligt Borg CR10</span>
-                </div>
-                <RangeSlider value={form.kansla} onChange={(v) => setForm((f) => ({ ...f, kansla: v }))} min={1} max={10} testId="effort" label="Ansträngning 1 till 10" />
-                <p className="text-xs" style={{ color: HINT }}>
-                  1 = Mycket lätt · 3 = Måttligt · 5 = Tungt · 7 = Mycket tungt · 10 = Maximalt
-                </p>
-              </div>
-              </>)}
-              <WellbeingSection key={`well-${formEpoch}-${editingId || (editingPending && editingPending.qid) || ""}`}
-                                form={form} setForm={setForm} isOff={isOff}
-                                counts={(usage && usage[form.user] && usage[form.user].pain) || NO_COUNTS} />
-              <div className="mb-4">
-                <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
-                  SAMMANFATTNING
-                </div>
-                <textarea
-                  value={form.anteckningar}
-                  onChange={(e) => setForm((f) => ({ ...f, anteckningar: e.target.value }))}
-                  placeholder={isOff ? (form.kind === "sick" ? "Hur mår du? Något som är bra att komma ihåg?" : "Hur kändes kroppen? Varför vila?") : "Vad gjorde ni? Hur kändes det?"}
-                  rows={3}
-                  className="border rounded-lg px-3 py-2 text-sm w-full resize-none"
-                  style={{ borderColor: LINE2 }}
-                />
-              </div>
-
-              <div className="flex gap-2">
-              <button
-                onClick={handleSave}
-                disabled={!canSave}
-                className="flex-1 py-2.5 rounded-lg text-sm font-bold text-on-accent transition-opacity flex items-center justify-center gap-2"
-                style={{ backgroundColor: ACCENT, opacity: canSave ? 1 : 0.45 }}
-              >
-                {saving ? (<><Loader2 size={16} className="animate-spin" /> Sparar…</>)
-                  : savedFlash === "queued" ? (<><AlertTriangle size={16} /> Ej sparat, försöker igen</>)
-                  : savedFlash ? (<><Check size={16} /> Sparat</>)
-                  : (editingId || editingPending) ? "Spara ändringar"
-                  : form.kind === "rest" ? "Spara vilodag" : form.kind === "sick" ? "Spara sjukdag" : "Spara pass"}
-              </button>
-              {/* Small outline button, no fill. Editing: it cancels the edit. Otherwise: empties what was filled in (date, user and kind stay). */}
-              <button type="button" data-testid="clear-form"
-                      onClick={(editingId || editingPending) ? cancelEdit : clearForm}
-                      disabled={!(editingId || editingPending) && !formDirty}
-                      className="px-4 py-2.5 rounded-lg text-sm font-semibold border bg-transparent transition-opacity"
-                      style={{ borderColor: ACCENT, color: ACCENT_DARK, opacity: (editingId || editingPending || formDirty) ? 1 : 0.45 }}>
-                {(editingId || editingPending) ? "Avbryt" : "Rensa"}
-              </button>
-              </div>
-              {!painOk && (
-                <p className="text-xs mt-2" data-testid="pain-hint" style={{ color: ERR }}>Fyll i smärta (0–10) för alla kroppsdelar, eller ta bort dem.</p>
-              )}
-              {saveError && (
-                <p className="text-sm mt-2" role="alert" data-testid="save-error" style={{ color: ERR }}>{saveError}</p>
-              )}
-              {!isOff && form.sport.length === 0 && (
-                <p className="text-xs mt-2" style={{ color: MUTED }}>
-                  Välj minst en aktivitet för att spara.
-                </p>
-              )}
+              {renderFormFields()}
+              {renderFormActions(false)}
             </Card>
 
             <div>
@@ -2408,120 +2754,138 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {listEntries.map((e) => {
-                    const isExpanded = expandedIds.has(e.id);
-                    const hasNote = e.anteckningar && e.anteckningar.trim().length > 0;
-                    const preview = hasNote && e.anteckningar.length > 42
-                      ? e.anteckningar.slice(0, 42) + "…"
-                      : e.anteckningar;
-                    const off = isOffDay(e);
-                    const pains = e.pain || [];
-                    // "Häl V 6" when it fits on the row, otherwise just a dot
-                    const shownFacts = [`${e.date.slice(8)}/${e.date.slice(5, 7)}`, off ? kindLabel(e.kind) : (e.sport || []).join(" "), ...(off ? [] : [(e.typ || []).join(" "), fmtTid(e.tid), distNum(e) ? `${fmtKm(distNum(e))} km` : "", e.kansla ? `${e.kansla}/10` : ""])].filter(Boolean);
-                    const factsLen = shownFacts.join(" · ").length;
-                    const painInline = pains.length === 1 && factsLen + 3 + painShort(pains[0]).length <= 36;
-                    return (
-                      <div key={e.id} data-testid={off ? "offday-row" : "pass-row"} className="rounded-lg border text-sm overflow-hidden"
-                           style={{ borderColor: LINE, backgroundColor: off ? OFFROW : CARD }}>
-                        <div
-                          onClick={() => toggleExpand(e.id)}
-                          className="flex items-center justify-between px-3 py-2 cursor-pointer select-none"
-                        >
-                          <div className="flex-1 min-w-0 flex items-center gap-1.5">
-                            <ChevronDown
-                              size={14}
-                              className="shrink-0 transition-transform"
-                              style={{
-                                color: MUTED,
-                                transform: isExpanded ? "rotate(0deg)" : "rotate(-90deg)",
-                              }}
-                            />
-                            {/* The facts (date, codes, time, effort) never get cut off; only the note preview is shortened. */}
-                            <div className="min-w-0 flex items-baseline gap-1">
-                              <span className="shrink-0 max-w-full">
-                                <span className="font-semibold mr-2">{e.date.slice(8)}/{e.date.slice(5,7)}</span>
-                                {off ? (
-                                  <span className="inline-flex items-center gap-1" style={{ color: MUTED }}>
-                                    {e.kind === "sick" ? <Thermometer size={14} /> : <Moon size={14} />}{kindLabel(e.kind)}
-                                  </span>
-                                ) : (
-                                  <>
-                                    <span style={{ color: ACCENT_DARK }}>{(e.sport||[]).join(" ")}</span>
-                                    {(e.typ||[]).length > 0 && (
-                                      <span style={{ color: MUTED }}> · {e.typ.join(" ")}</span>
-                                    )}
-                                    {fmtTid(e.tid) && <span data-testid="tid-text" style={{ color: MUTED }}> · {fmtTid(e.tid)}</span>}
-                                    {distNum(e) > 0 && <span data-testid="distance" style={{ color: MUTED }}> · {fmtKm(distNum(e))} km</span>}
-                                    {e.kansla && <span data-testid="effort" style={{ color: MUTED }}> · {e.kansla}/10</span>}
-                                  </>
-                                )}
-                                {pains.length > 0 && (painInline
-                                  ? <span data-testid="pain-badge" style={{ color: DANGER }}> · {painShort(pains[0])}</span>
-                                  : <span data-testid="pain-dot" title="Smärta" aria-label="Smärta" className="inline-block rounded-full align-middle ml-1.5"
-                                          style={{ width: 8, height: 8, backgroundColor: DANGER }} />)}
-                              </span>
-                              {hasNote && !isExpanded && (
-                                <span className="truncate min-w-0 flex-1" style={{ color: FAINT }}>· {preview}</span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-0.5 shrink-0 ml-2">
-                            <button
-                              onClick={(ev) => { ev.stopPropagation(); startEdit(e); }}
-                              className="p-1 rounded hover-soft"
-                              title="Redigera"
-                            >
-                              <Pencil size={14} style={{ color: MUTED }} />
-                            </button>
-                            <button
-                              onClick={(ev) => { ev.stopPropagation(); askDelete(e); }}
-                              className="p-1 rounded hover-soft"
-                              title="Ta bort"
-                            >
-                              <Trash2 size={15} style={{ color: DANGER }} />
-                            </button>
-                          </div>
-                        </div>
-                        {isExpanded && (
-                          <div className="px-3 pb-3 pt-0.5" style={{ paddingLeft: "2rem" }}>
-                            {!off && paceOf(e) && (
-                              <p className="text-sm mb-1" data-testid="pace" style={{ color: INK }}>
-                                <span style={{ color: MUTED }}>Tempo </span>{paceOf(e)}
-                              </p>
-                            )}
-                            {(e.sleep || e.energy) && (
-                              <p className="text-sm mb-1" data-testid="well-line" style={{ color: INK }}>
-                                {e.sleep && <><span style={{ color: MUTED }}>Sömn </span>{e.sleep} – {SLEEP_LABELS[Number(e.sleep) - 1]}</>}
-                                {e.sleep && e.energy && <span style={{ color: MUTED }}> · </span>}
-                                {e.energy && <><span style={{ color: MUTED }}>Energi </span>{e.energy} – {ENERGY_LABELS[Number(e.energy) - 1]}</>}
-                              </p>
-                            )}
-                            {pains.length > 0 && (
-                              <div className="mb-1" data-testid="pain-lines">
-                                <div className="text-xs font-bold" style={{ color: MUTED }}>{off ? "SMÄRTA IDAG" : "SMÄRTA UNDER PASSET"}</div>
-                                {pains.map((p, i) => <p key={i} className="text-sm" data-testid="pain-line" style={{ color: INK }}>{painLong(p)}</p>)}
-                              </div>
-                            )}
-                            {hasNote ? (
-                              <div data-testid="note-block" className={(e.sleep || e.energy || pains.length) ? "mt-2 pt-2 border-t" : ""} style={{ borderColor: LINE }}>
-                                {!!(e.sleep || e.energy || pains.length) && <div className="text-xs font-bold" style={{ color: MUTED }}>SAMMANFATTNING</div>}
-                                <p className="text-sm whitespace-pre-wrap" style={{ color: INK }}>
-                                  {e.anteckningar}
-                                </p>
-                              </div>
-                            ) : (
-                              <p className="text-xs italic" style={{ color: FAINT }}>
-                                Ingen sammanfattning för {off ? (e.kind === "sick" ? "den här sjukdagen" : "den här vilodagen") : "det här passet"}.
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                  {listEntries.map((e) => renderEntryRow(e, "log"))}
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {view === "hist" && (
+          <div className="space-y-4" data-testid="history">
+            <div>
+              <div className="text-xs font-bold mb-2" style={{ color: ACCENT_DARK }}>VISAR HISTORIK FÖR</div>
+              <div className="flex flex-wrap gap-2">
+                {visibleUsers.map((u) => (
+                  <Pill key={u.id} active={histUser === u.id} color={userColor(u)} onClick={() => setHistUser(u.id)}>{u.name}</Pill>
+                ))}
+              </div>
+            </div>
+
+            {!histSearching && (() => {
+              const nowKey = monthKeyOf(todayISO());
+              const firstKey = allMonths[0] || nowKey;
+              const options = [...new Set([...allMonths, histMonth])].sort().reverse();
+              return (
+                <div data-testid="hist-month-picker">
+                  <PeriodStepper id="hist-month" prevLabel="Föregående månad" nextLabel="Nästa månad"
+                                 canPrev={histMonth > firstKey} canNext={histMonth < nowKey}
+                                 onPrev={() => setHistMonth(addMonthKey(histMonth, -1))}
+                                 onNext={() => setHistMonth(addMonthKey(histMonth, 1))}
+                                 overlay={(
+                                   <select value={histMonth} aria-label="Välj månad" data-testid="hist-month-jump"
+                                           onChange={(e) => setHistMonth(e.target.value)}
+                                           className="absolute inset-0 w-full h-full cursor-pointer" style={{ opacity: 0 }}>
+                                     {options.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
+                                   </select>
+                                 )}>
+                    <span className="font-bold">{monthLabel(histMonth)}</span>
+                  </PeriodStepper>
+                  {histMonth !== nowKey && (
+                    <div className="text-right mt-1">
+                      <button type="button" data-testid="hist-month-now" onClick={() => setHistMonth(nowKey)}
+                              className="text-sm font-semibold underline px-1" style={{ minHeight: 44, color: ACCENT_DARK }}>
+                        Denna månad
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div>
+              <div className="relative">
+                <Search size={16} className="absolute" style={{ left: 12, top: 13, color: MUTED }} />
+                <input type="text" value={histQuery} onChange={(e) => setHistQuery(e.target.value)} placeholder="Sök" data-testid="hist-search" aria-label="Sök"
+                       className="border rounded-lg py-2 text-sm w-full" style={{ borderColor: LINE2, paddingLeft: 36, paddingRight: 40, minHeight: 42 }} />
+                {histQuery && (
+                  <button type="button" aria-label="Rensa sökningen" data-testid="hist-search-clear" onClick={() => setHistQuery("")}
+                          className="absolute p-2 rounded hover-soft" style={{ right: 4, top: 1 }}>
+                    <X size={16} style={{ color: MUTED }} />
+                  </button>
+                )}
+              </div>
+              {histSearching && (
+                <p className="text-xs mt-1.5" data-testid="hist-searching" style={{ color: MUTED }}>
+                  Söker i alla månader{histLoaded ? ` · ${histShown.length === 1 ? "1 träff" : `${histShown.length} träffar`}` : ""}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2 items-center" data-testid="hist-filters">
+              <button type="button" data-testid="hist-f-pain" aria-pressed={histFilters.pain}
+                      onClick={() => setHistFilters((f) => ({ ...f, pain: !f.pain }))}
+                      className="px-3 rounded-full text-sm font-semibold border"
+                      style={{ minHeight: 40, borderColor: histFilters.pain ? ACCENT : LINE2, backgroundColor: histFilters.pain ? ACCENT : CARD, color: histFilters.pain ? ON_ACCENT : CTRL }}>
+                Bara med smärta
+              </button>
+              <FilterSelect testId="hist-f-sport" label="Aktivitet" value={histFilters.sport} options={histOptions.sport} onChange={(v) => setHistFilters((f) => ({ ...f, sport: v }))} />
+              <FilterSelect testId="hist-f-typ" label="Träningstyp" value={histFilters.typ} options={histOptions.typ} onChange={(v) => setHistFilters((f) => ({ ...f, typ: v }))} />
+              <FilterSelect testId="hist-f-part" label="Kroppsdel" value={histFilters.part} options={histOptions.part} onChange={(v) => setHistFilters((f) => ({ ...f, part: v }))} />
+              {histFiltering && (
+                <button type="button" data-testid="hist-f-clear" onClick={() => setHistFilters({ pain: false, sport: "", typ: "", part: "" })}
+                        className="text-sm font-semibold underline px-1" style={{ minHeight: 40, color: ACCENT_DARK }}>
+                  Rensa filter
+                </button>
+              )}
+            </div>
+            {histOffCount > 0 && (
+              <button type="button" onClick={toggleHideOffDays} data-testid="hist-toggle-offdays" aria-pressed={hideOffDays}
+                      title={hideOffDays ? "Visa vilo- och sjukdagar" : "Dölj vilo- och sjukdagar"}
+                      className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold border bg-transparent"
+                      style={{ borderColor: LINE2, color: hideOffDays ? FAINT : MUTED }}>
+                {hideOffDays ? <EyeOff size={14} /> : <Eye size={14} />}
+                Vilo-/sjukdagar ({histOffCount})
+              </button>
+            )}
+
+            {!histLoaded ? (
+              <p className="text-sm" style={{ color: MUTED }}>Laddar…</p>
+            ) : histGroups.length === 0 ? (
+              <p className="text-sm" style={{ color: MUTED }} data-testid="hist-empty">
+                {histSearching || histFiltering ? "Inga träffar."
+                  : histUserEntries.length === 0 ? "Inga pass loggade den här månaden ännu."
+                  : `Inga pass den här månaden. ${histOffCount === 1 ? "1 vilo-/sjukdag är dold" : `${histOffCount} vilo-/sjukdagar är dolda`}.`}
+              </p>
+            ) : (
+              <div className="space-y-5">
+                {histGroups.map((g) => {
+                  const wl = weekLabel(g.monday), sm = weekSummary(g.entries);
+                  const partial = !histSearching && (g.monday.slice(0, 7) !== histMonth || addDaysIso(g.monday, 6).slice(0, 7) !== histMonth);
+                  const open = !histCollapsed.has(g.monday);
+                  return (
+                    <div key={g.monday} data-testid="hist-week">
+                      <button type="button" data-testid="hist-week-toggle" aria-expanded={open} onClick={() => toggleWeek(g.monday)}
+                              className="w-full flex items-center justify-between text-left" style={{ minHeight: 32 }}>
+                        <span className="text-xs font-bold" style={{ color: MUTED }} data-testid="hist-week-title">
+                          VECKA {wl.week} · {wl.range}{partial ? " (del av vecka)" : ""}
+                        </span>
+                        <ChevronDown size={16} style={{ color: MUTED, transform: open ? "none" : "rotate(-90deg)" }} />
+                      </button>
+                      <div className="text-xs mb-2" data-testid="hist-week-summary" style={{ color: INK }}>
+                        {sm.text}{(histFiltering || histSearching) ? <span style={{ color: FAINT }}> (filtrerat)</span> : null}
+                        {sm.painList.length > 0 && (
+                          <div data-testid="hist-week-pain" style={{ color: DANGER }}>
+                            Smärta: {sm.painList.slice(0, 2).map((x) => `${x.short} (högst ${x.max})`).join(", ")}{sm.painList.length > 2 ? ` +${sm.painList.length - 2}` : ""}
+                          </div>
+                        )}
+                      </div>
+                      {open && <div className="space-y-2">{g.entries.map((e) => renderEntryRow(e, "hist"))}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -2740,6 +3104,28 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
           </div>
         )}
 
+        {sheetOpen && (
+          <div className="fixed inset-0 z-40 flex flex-col justify-end" data-testid="edit-sheet-backdrop" style={{ backgroundColor: "rgba(0,0,0,0.4)" }}
+               onClick={(e) => { if (e.target === e.currentTarget) requestCloseSheet(); }}>
+            <div role="dialog" aria-modal="true" aria-label="Redigera" data-testid="edit-sheet" className="bg-card w-full max-w-xl mx-auto rounded-t-2xl flex flex-col sheet-up"
+                 style={{ height: "calc(100dvh - 92px)", maxHeight: "calc(100vh - 92px)", color: INK }}>
+              <div className="flex items-center justify-between px-4 py-3 border-b shrink-0" style={{ borderColor: LINE }}>
+                <div className="flex items-center gap-1.5 text-sm font-bold" style={{ color: ACCENT_DARK }}>
+                  <Pencil size={14} /> Redigerar loggat pass
+                </div>
+                <button type="button" aria-label="Stäng" data-testid="sheet-close" onClick={requestCloseSheet} className="p-2 rounded hover-soft">
+                  <X size={18} style={{ color: MUTED }} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-4 pt-4" data-testid="sheet-body" style={{ overscrollBehavior: "contain" }}>
+                {renderFormFields()}
+              </div>
+              <div className="px-4 pt-3 border-t shrink-0" style={{ borderColor: LINE, paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
+                {renderFormActions(true)}
+              </div>
+            </div>
+          </div>
+        )}
         {showChangelog && <ChangelogModal onClose={() => setShowChangelog(false)} />}
         {confirmDlg && confirmDlg.kind === "saved" && (
           <ConfirmModal title={isOffDay(confirmDlg.entry) ? `Ta bort ${kindLabel(confirmDlg.entry.kind).toLowerCase()}en?` : "Ta bort passet?"} text={`${userName(confirmDlg.entry.user || "niva")} · ${entryLine(confirmDlg.entry)}. Det här går inte att ångra.`}
@@ -2748,6 +3134,10 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         {confirmDlg && confirmDlg.kind === "pending" && (
           <ConfirmModal title="Ta bort det osparade passet?" text="Det finns inte på någon annan enhet."
                         confirmLabel="Ta bort" busy={false} error={null} onConfirm={doConfirm} onCancel={closeConfirm} />
+        )}
+        {confirmDlg && confirmDlg.kind === "discard" && (
+          <ConfirmModal title="Släng ändringarna?" text="Det du har ändrat sparas inte."
+                        confirmLabel="Släng" busy={false} error={null} onConfirm={doConfirm} onCancel={closeConfirm} />
         )}
         {confirmDlg && confirmDlg.kind === "disconnect" && (
           <ConfirmModal title="Koppla bort den här enheten?"

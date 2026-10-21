@@ -13,3 +13,7 @@ body{min-height:100dvh;overflow-x:clip;-webkit-tap-highlight-color:transparent;-
 button,label,[role=button]{-webkit-user-select:none;user-select:none;touch-action:manipulation}
 input,textarea,select{font-size:16px !important;max-width:100%;-webkit-appearance:none;appearance:none;border-radius:.5rem}
 input[type=date]{min-height:2.5rem}
+
+@keyframes sheet-up{from{transform:translateY(100%)}to{transform:none}}
+.sheet-up{animation:sheet-up .22s ease-out}
+@media (prefers-reduced-motion:reduce){.sheet-up{animation:none}}

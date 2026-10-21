@@ -1,5 +1,13 @@
 # Changelog / Ändringslogg
 
+## 1.7.3 – 2026-10-21
+
+- Ny flik Historik: bläddra månad för månad med veckorubriker och veckosummor (pass, tid, belastning, distans, vilo- och sjukdagar och högsta smärta per kroppsdel)
+- Sök: letar i sammanfattning, smärtnoteringar, kroppsdelar, aktiviteter och träningstyper. När du skriver söker den i alla månader
+- Filter: Bara med smärta, Aktivitet, Träningstyp och Kroppsdel. Filtren kan kombineras
+- Smärta syns som små markeringar under raden (till exempel Häl V 6)
+- Pennan i Historik öppnar passet i en panel som glider upp, så du slipper lämna fliken. Det du höll på att skriva på Logga pass finns kvar när du stänger panelen
+
 ## 1.7.2 – 2026-10-21
 
 - Ansträngning (1–10) väljs nu med en slider, som smärtan. Ingen siffra är vald från början, tryck eller dra för att välja, och kryssknappen tar bort valet
