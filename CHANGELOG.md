@@ -1,5 +1,14 @@
 # Changelog / Ändringslogg
 
+## 1.7.0 – 2026-10-21
+
+- Ny hopfällbar sektion Mående i loggformuläret, ovanför Anteckningar. Allt är valfritt och inget är förifyllt
+- Sömn och Energi på skalan 1–5 (Sömn: Dålig till Toppen, Energi: Tömd till Laddad)
+- Smärta per kroppsdel, 0–10 med en slider (ingen siffra är vald från början), och valfri notering. Snabbval för dina vanligaste kroppsdelar och Lägg till kroppsdel för resten. Vänster/höger (eller övre/nedre för rygg) väljs separat
+- Går även att fylla i på vilodagar och sjukdagar (Smärta idag)
+- Smärta syns direkt på raden i listan (till exempel Häl V 6), och allt visas i det öppnade passet
+- CSV-filen har tre nya kolumner sist: Somn, Energi och Smarta. Äldre filer går att importera som förut
+
 ## 1.6.6 – 2026-10-21
 
 - Tid kan anges med sekunder (min : sek). Sekunderna är valfria och gamla pass med hela minuter fungerar som förut

@@ -1,14 +1,21 @@
-import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useDeferredValue } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useDeferredValue, useRef } from "react";
 import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun } from "lucide-react";
 
-export const APP_VERSION = "1.6.6";
+export const APP_VERSION = "1.7.0";
 export const APP_DATE = "2026-10-21";
 
 const CHANGELOG = [
+  { version: "1.7.0", date: "2026-10-21", items: [
+    "Ny hopfällbar sektion Mående i loggformuläret, ovanför Anteckningar. Allt är valfritt och inget är förifyllt",
+    "Sömn och Energi på skalan 1–5 (Sömn: Dålig till Toppen, Energi: Tömd till Laddad)",
+    "Smärta per kroppsdel, 0–10 med en slider (ingen siffra är vald från början), och valfri notering. Snabbval för dina vanligaste kroppsdelar och Lägg till kroppsdel för resten. Vänster/höger (eller övre/nedre för rygg) väljs separat",
+    "Går även att fylla i på vilodagar och sjukdagar (Smärta idag)",
+    "Smärta syns direkt på raden i listan (till exempel Häl V 6), och allt visas i det öppnade passet",
+    "CSV-filen har tre nya kolumner sist: Somn, Energi och Smarta. Äldre filer går att importera som förut" ] },
   { version: "1.6.6", date: "2026-10-21", items: [
     "Tid kan nu anges med sekunder (min : sek). Sekunderna är valfria",
     "Tempot räknas på exakt tid, till exempel 4,07 km på 40:46 ger 10:01 min/km",
@@ -602,6 +609,258 @@ function entryLine(e) {
   ].filter(Boolean).join(" · ");
 }
 
+// ---- Wellbeing ("Mående"): sleep, energy (1-5) and pain per body part (0-10). All optional. ----
+// Entry fields: sleep "1".."5", energy "1".."5", pain [{ part, pos?, value "0".."10", note?, label? }].
+// `pos` is the side (L/R) for paired body parts and "up"/"low" for the back. `label` names a free-text "other" part.
+const SLEEP_LABELS = ["Dålig", "Sådär", "Okej", "Bra", "Toppen"];
+const ENERGY_LABELS = ["Tömd", "Låg", "Okej", "Bra", "Laddad"];
+const POS_LR = [{ code: "L", label: "vänster", short: "V" }, { code: "R", label: "höger", short: "H" }];
+const POS_BACK = [{ code: "up", label: "övre", short: "övre" }, { code: "low", label: "nedre", short: "nedre" }];
+const LR = (code, label) => ({ code, label, pos: POS_LR });
+const BODY_REGIONS = [
+  { label: "Nacke och rygg", parts: [{ code: "neck", label: "Nacke" }, { code: "back", label: "Rygg", pos: POS_BACK }] },
+  { label: "Arm", parts: [LR("shoulder", "Axel"), LR("upper_arm", "Överarm"), LR("elbow", "Armbåge"), LR("forearm", "Underarm"), LR("wrist", "Handled/hand")] },
+  { label: "Bål", parts: [{ code: "chest", label: "Bröst" }, { code: "belly", label: "Mage" }] },
+  { label: "Höft och ben", parts: [LR("hip", "Höft"), LR("groin", "Ljumske"), LR("thigh_front", "Lår framsida"), LR("thigh_back", "Lår baksida"),
+                                  LR("knee", "Knä"), LR("shin", "Smalben"), LR("calf", "Vad")] },
+  { label: "Fot", parts: [LR("ankle", "Fotled"), LR("achilles", "Hälsena"), LR("heel", "Häl"), LR("foot", "Fot/framfot")] },
+];
+const OTHER_PART = { code: "other", label: "Annat" };
+const BODY_PARTS = BODY_REGIONS.flatMap((r) => r.parts); // without "other"
+const partInfo = (code) => (code === "other" ? OTHER_PART : BODY_PARTS.find((x) => x.code === code)) || { code, label: code };
+const DEFAULT_PAIN_PARTS = ["heel", "knee", "back"];
+const posInfo = (part, pos) => ((partInfo(part).pos || []).find((x) => x.code === pos)) || null;
+const newPainRow = (part) => ({ k: uid(), part, pos: "", value: "", note: "", label: "" });
+// A pain row is complete when it has a value, a side/level where the part needs one, and a name if it is "other".
+const painRowOk = (r) => r.value !== "" && (!partInfo(r.part).pos || !!posInfo(r.part, r.pos)) && (r.part !== "other" || r.label.trim() !== "");
+const painToForm = (list) => (list || []).map((p) => ({ k: uid(), part: p.part, pos: p.pos || "", value: String(p.value ?? ""), note: p.note || "", label: p.label || "" }));
+const painFromForm = (rows) => (rows || []).filter(painRowOk).map((r) => ({
+  part: r.part,
+  ...(r.pos ? { pos: r.pos } : {}),
+  value: String(r.value),
+  ...(r.note.trim() ? { note: r.note.trim() } : {}),
+  ...(r.part === "other" ? { label: r.label.trim() } : {}),
+}));
+// Fields to store (omitted when empty, so old entries and untouched forms stay exactly as before).
+const wellbeingOf = (f) => {
+  const pain = painFromForm(f.pain);
+  return { ...(f.sleep ? { sleep: f.sleep } : {}), ...(f.energy ? { energy: f.energy } : {}), ...(pain.length ? { pain } : {}) };
+};
+const hasWellbeing = (f) => !!(f.sleep || f.energy || (f.pain && f.pain.length));
+const painName = (p) => (p.part === "other" ? (p.label || "Annat") : partInfo(p.part).label);
+// "Häl V 6" (short, for the list row) and "Häl, vänster: 6/10 – note" (long, for the opened entry)
+const painShort = (p) => { const pi = posInfo(p.part, p.pos); return `${painName(p)}${pi ? " " + pi.short : ""} ${p.value}`; };
+const painLong = (p) => { const pi = posInfo(p.part, p.pos); return `${painName(p)}${pi ? ", " + pi.label : ""}: ${p.value}/10${p.note ? " – " + p.note : ""}`; };
+// CSV text for pain: "Häl vänster:6:ont vid start | Knä höger:3:" (name+position : value : note)
+const painToCsv = (list) => (list || []).map((p) => {
+  const pi = posInfo(p.part, p.pos);
+  const name = p.part === "other" ? `Annat (${p.label || ""})` : partInfo(p.part).label;
+  return `${name}${pi ? " " + pi.label : ""}:${p.value}:${(p.note || "").replace(/ \| /g, " / ").replace(/\n/g, " ")}`;
+}).join(" | ");
+function painFromCsv(text) {
+  const out = [];
+  String(text || "").split(" | ").forEach((chunk) => {
+    const c1 = chunk.indexOf(":"); if (c1 < 0) return;
+    const c2 = chunk.indexOf(":", c1 + 1);
+    const head = chunk.slice(0, c1).trim(), value = (c2 < 0 ? chunk.slice(c1 + 1) : chunk.slice(c1 + 1, c2)).trim();
+    const note = c2 < 0 ? "" : chunk.slice(c2 + 1).trim();
+    if (!/^(?:10|[0-9])$/.test(value)) return;
+    const other = head.match(/^Annat \((.*)\)$/i);
+    if (other) { if (other[1].trim()) out.push({ part: "other", value, ...(note ? { note } : {}), label: other[1].trim() }); return; }
+    const lower = head.toLowerCase();
+    const part = [...BODY_PARTS].sort((a, b) => b.label.length - a.label.length).find((x) => lower === x.label.toLowerCase() || lower.startsWith(x.label.toLowerCase() + " "));
+    if (!part) return;
+    let pos = "";
+    if (part.pos) {
+      const rest = lower.slice(part.label.length).trim();
+      const pi = part.pos.find((x) => x.label === rest);
+      if (!pi) return;
+      pos = pi.code;
+    }
+    out.push({ part: part.code, ...(pos ? { pos } : {}), value, ...(note ? { note } : {}) });
+  });
+  return out;
+}
+
+// One 1-5 scale: five buttons, no default, tap again to clear. Ends are named; the chosen step shows its name.
+function ScaleRow({ title, value, labels, onChange, testId }) {
+  return (
+    <div className="mb-3" data-testid={testId}>
+      <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>{title}</div>
+      <div className="grid grid-cols-5 gap-1.5">
+        {[1, 2, 3, 4, 5].map((n) => {
+          const on = value === String(n);
+          return (
+            <button key={n} type="button" data-testid={`${testId}-${n}`} aria-pressed={on} onClick={() => onChange(on ? "" : String(n))}
+                    className="py-2 rounded-lg text-sm font-bold border"
+                    style={{ borderColor: on ? ACCENT : LINE2, backgroundColor: on ? ACCENT : CARD, color: on ? ON_ACCENT : CTRL }}>{n}</button>
+          );
+        })}
+      </div>
+      <div className="flex justify-between text-xs mt-1.5" style={{ color: HINT }} data-testid={`${testId}-hint`}>
+        {value ? <span style={{ color: INK }}>{value} – {labels[Number(value) - 1]}</span> : (<><span>{labels[0]}</span><span>{labels[4]}</span></>)}
+      </div>
+    </div>
+  );
+}
+
+// Pain 0-10 as a slider that starts unset: no thumb until the user taps or drags (so nothing looks pre-chosen).
+// Tap or drag horizontally; a vertical swipe still scrolls the page (touch-action: pan-y).
+function PainSlider({ value, onChange }) {
+  const ref = useRef(null);
+  const drag = useRef(null);
+  const PAD = 16; // half the thumb, so 0 and 10 sit fully inside the track
+  const set = (clientX) => {
+    const r = ref.current.getBoundingClientRect();
+    const t = Math.min(1, Math.max(0, (clientX - r.left - PAD) / Math.max(1, r.width - 2 * PAD)));
+    const v = String(Math.round(t * 10));
+    if (v !== value) onChange(v);
+  };
+  const n = value === "" ? null : Number(value);
+  const pos = (i) => `calc(${PAD}px + (100% - ${2 * PAD}px) * ${i / 10})`;
+  const key = (e) => {
+    const d = e.key === "ArrowRight" || e.key === "ArrowUp" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowDown" ? -1 : 0;
+    if (!d) return;
+    e.preventDefault();
+    onChange(String(Math.min(10, Math.max(0, (n === null ? (d > 0 ? -1 : 11) : n) + d))));
+  };
+  return (
+    <div className="mb-2" data-testid="pain-slider-wrap">
+      <div className="flex items-center gap-2">
+        <div ref={ref} role="slider" tabIndex={0} aria-label="Smärta 0 till 10" aria-valuemin={0} aria-valuemax={10}
+             aria-valuenow={n === null ? undefined : n} aria-valuetext={n === null ? "Inte vald" : String(n)} data-testid="pain-slider" onKeyDown={key}
+             onPointerDown={(e) => { drag.current = { x: e.clientX, moved: false }; try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {} }}
+             onPointerMove={(e) => { const d = drag.current; if (!d) return; if (Math.abs(e.clientX - d.x) > 4) { d.moved = true; set(e.clientX); } }}
+             onPointerUp={(e) => { const d = drag.current; drag.current = null; if (d && !d.moved) set(e.clientX); }}
+             onPointerCancel={() => { drag.current = null; }}
+             className="relative flex-1 select-none" style={{ height: 44, touchAction: "pan-y", cursor: "pointer" }}>
+          <div className="absolute rounded-full" style={{ left: PAD, right: PAD, top: 20, height: 4, backgroundColor: LINE2 }} />
+          {n !== null && <div className="absolute rounded-full" style={{ left: PAD, width: `calc((100% - ${2 * PAD}px) * ${n / 10})`, top: 20, height: 4, backgroundColor: ACCENT }} />}
+          {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => (
+            <div key={i} className="absolute rounded-full" style={{ left: pos(i), top: 19, width: 2, height: 6, marginLeft: -1, backgroundColor: n !== null && i <= n ? ACCENT : MUTED, opacity: n !== null && i <= n ? 1 : 0.5 }} />
+          ))}
+          {n !== null && (
+            <div data-testid="pain-thumb" className="absolute rounded-full" style={{ left: pos(n), top: 8, width: 28, height: 28, marginLeft: -14, backgroundColor: ACCENT, border: `3px solid ${CARD}`, boxShadow: `0 0 0 1px ${ACCENT}` }} />
+          )}
+        </div>
+        <div className="flex items-center gap-1 shrink-0" style={{ width: 54 }}>
+          <span data-testid="pain-value-text" className="text-2xl font-bold text-center" style={{ minWidth: 28, color: n === null ? FAINT : ACCENT_DARK }}>{n === null ? "–" : n}</span>
+          {n !== null && (
+            <button type="button" data-testid="pain-clear" aria-label="Rensa värdet" onClick={() => onChange("")} className="p-1 rounded hover-soft">
+              <X size={14} style={{ color: MUTED }} />
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="flex justify-between text-xs" style={{ color: HINT, marginRight: 62, paddingLeft: PAD - 4, paddingRight: PAD - 6 }}>
+        <span>0</span>
+        {n === null && <span data-testid="pain-slider-hint">Tryck eller dra för att välja</span>}
+        <span>10</span>
+      </div>
+    </div>
+  );
+}
+
+// Collapsible "Mående" section of the log form.
+function WellbeingSection({ form, setForm, isOff, counts }) {
+  const [open, setOpen] = useState(() => hasWellbeing(form));
+  // Most used body parts (last 30 days) first, topped up with the defaults in their own order.
+  const quick = useMemo(() => {
+    const used = BODY_PARTS.map((x) => x.code).filter((c) => (counts[c] || 0) > 0).sort((a, b) => counts[b] - counts[a]);
+    return [...used, ...DEFAULT_PAIN_PARTS].filter((c, i, l) => l.indexOf(c) === i).slice(0, VISIBLE_COUNT);
+  }, [counts]);
+  const setPain = (fn) => setForm((f) => ({ ...f, pain: fn(f.pain || []) }));
+  const addPart = (code) => setPain((l) => [...l, newPainRow(code)]);
+  const upd = (k, patch) => setPain((l) => l.map((r) => (r.k === k ? { ...r, ...patch } : r)));
+  const summary = [form.sleep && `Sömn ${form.sleep}`, form.energy && `Energi ${form.energy}`, form.pain.length && `${form.pain.length} smärta`].filter(Boolean).join(" · ");
+  const painTitle = isOff ? "SMÄRTA IDAG" : "SMÄRTA UNDER PASSET";
+  return (
+    <div className="mb-4 rounded-lg border" style={{ borderColor: LINE }} data-testid="wellbeing">
+      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} data-testid="wellbeing-toggle"
+              className="w-full flex items-center justify-between px-3 py-2.5 text-left">
+        <span className="min-w-0">
+          <span className="text-xs font-bold" style={{ color: LABEL }}>MÅENDE</span>
+          {!open && <span className="text-xs ml-2" data-testid="wellbeing-summary" style={{ color: summary ? INK : FAINT }}>{summary || "Sömn, energi, smärta (valfritt)"}</span>}
+        </span>
+        <ChevronDown size={16} style={{ color: MUTED, transform: open ? "rotate(180deg)" : "none" }} />
+      </button>
+      {open && (
+        <div className="px-3 pb-3">
+          <ScaleRow title="SÖMN" value={form.sleep} labels={SLEEP_LABELS} testId="sleep"
+                    onChange={(v) => setForm((f) => ({ ...f, sleep: v }))} />
+          <ScaleRow title="ENERGI" value={form.energy} labels={ENERGY_LABELS} testId="energy"
+                    onChange={(v) => setForm((f) => ({ ...f, energy: v }))} />
+          <div className="text-xs font-bold mb-1" style={{ color: LABEL }}>{painTitle}</div>
+          <p className="text-xs mb-2" style={{ color: HINT }}>0 = ingen smärta · 10 = värsta tänkbara</p>
+          <div className="space-y-2 mb-2">
+            {form.pain.map((r) => {
+              const info = partInfo(r.part);
+              return (
+                <div key={r.k} data-testid="pain-row" className="rounded-lg border p-2.5" style={{ borderColor: LINE2, backgroundColor: SUBTLE }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-semibold" style={{ color: INK }}>{info.label}</span>
+                    <button type="button" aria-label={`Ta bort ${info.label}`} data-testid="pain-remove"
+                            onClick={() => setPain((l) => l.filter((x) => x.k !== r.k))} className="p-1 rounded hover-soft">
+                      <X size={16} style={{ color: MUTED }} />
+                    </button>
+                  </div>
+                  {r.part === "other" && (
+                    <input type="text" value={r.label} maxLength={40} placeholder="Vilken kroppsdel?" data-testid="pain-label" aria-label="Kroppsdel"
+                           onChange={(e) => upd(r.k, { label: e.target.value })}
+                           className="border rounded-lg px-3 py-2 text-sm w-full mb-2" style={{ borderColor: LINE2 }} />
+                  )}
+                  {info.pos && (
+                    <div role="group" aria-label="Sida" data-testid="pain-pos" className="flex w-full rounded-lg border overflow-hidden mb-2" style={{ borderColor: LINE2 }}>
+                      {info.pos.map((o, i) => {
+                        const on = r.pos === o.code;
+                        return (
+                          <button key={o.code} type="button" aria-pressed={on} data-testid={`pain-pos-${o.code}`} onClick={() => upd(r.k, { pos: on ? "" : o.code })}
+                                  className="flex-1 py-2 text-sm font-semibold"
+                                  style={{ backgroundColor: on ? ACCENT : CARD, color: on ? ON_ACCENT : CTRL, borderLeft: i ? `1px solid ${LINE2}` : "none" }}>
+                            {o.label.charAt(0).toUpperCase() + o.label.slice(1)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <PainSlider value={r.value} onChange={(v) => upd(r.k, { value: v })} />
+                  <input type="text" value={r.note} maxLength={120} placeholder="Notering (valfri)" data-testid="pain-note" aria-label="Notering"
+                         onChange={(e) => upd(r.k, { note: e.target.value })}
+                         className="border rounded-lg px-3 py-2 text-sm w-full" style={{ borderColor: LINE2 }} />
+                  {!painRowOk(r) && (
+                    <p className="text-xs mt-1.5" data-testid="pain-missing" style={{ color: ERR }}>
+                      {r.part === "other" && !r.label.trim() ? "Skriv vilken kroppsdel det gäller." : info.pos && !r.pos ? `Välj ${info.pos.map((o) => o.label).join(" eller ")}.` : "Välj hur ont det gör (0–10)."}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-2 items-center" data-testid="pain-add">
+            {quick.map((c) => (
+              <button key={c} type="button" data-testid={`pain-quick-${c}`} onClick={() => addPart(c)}
+                      className="px-3 py-2 rounded-full text-sm border flex items-center gap-1" style={{ borderColor: LINE2, color: CTRL, backgroundColor: CARD }}>
+                <Plus size={14} /> {partInfo(c).label}
+              </button>
+            ))}
+            <select aria-label="Lägg till kroppsdel" data-testid="pain-select" value=""
+                    onChange={(e) => { if (e.target.value) addPart(e.target.value); }}
+                    className="border rounded-full px-3 py-2 text-sm" style={{ borderColor: LINE2, color: MUTED }}>
+              <option value="">+ Lägg till kroppsdel</option>
+              {BODY_REGIONS.map((g) => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.parts.map((x) => <option key={x.code} value={x.code}>{x.label}</option>)}
+                </optgroup>
+              ))}
+              <optgroup label="Annat"><option value="other">Annat (skriv själv)</option></optgroup>
+            </select>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---- Most used choices ("Vanligaste valen") ----
 const VISIBLE_COUNT = 3;
 const DEFAULT_SPORTS = ["F", "LÖ", "S"];
@@ -997,6 +1256,9 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     distance: "",
     kansla: "",
     anteckningar: "",
+    sleep: "",
+    energy: "",
+    pain: [], // form rows: { k, part, pos, value, note, label }; stored via wellbeingOf()
     kind: "pass", // form only: "pass" | "rest" | "sick" (a normal pass is stored without kind)
   };
   const [form, setForm] = useState(emptyForm);
@@ -1174,7 +1436,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   }, [statsScope, statsWeek, liveTick]);
 
   // ---- Vanligaste valen: counted once when the app opens (never while logging) ----
-  const [usage, setUsage] = useState(null); // { userId: { sport: {code: n}, typ: {code: n} } }
+  const [usage, setUsage] = useState(null); // { userId: { sport: {code: n}, typ: {code: n}, pain: {part: n} } }
   useEffect(() => {
     let dead = false;
     (async () => {
@@ -1182,8 +1444,10 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       const results = await Promise.all(monthsBetween(since, todayISO()).map((m) => safeGetResult(`entries:${m}`)));
       const u = {};
       results.forEach((r) => (r.data || []).forEach((e) => {
-        if (!isRealPass(e) || e.date < since) return;
-        const slot = (u[e.user || "niva"] = u[e.user || "niva"] || { sport: {}, typ: {} });
+        if (e.date < since) return;
+        const slot = (u[e.user || "niva"] = u[e.user || "niva"] || { sport: {}, typ: {}, pain: {} });
+        (e.pain || []).forEach((p) => { slot.pain[p.part] = (slot.pain[p.part] || 0) + 1; });
+        if (!isRealPass(e)) return;
         (e.sport || []).forEach((c) => { slot.sport[c] = (slot.sport[c] || 0) + 1; });
         (e.typ || []).forEach((c) => { slot.typ[c] = (slot.typ[c] || 0) + 1; });
       }));
@@ -1317,6 +1581,9 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       distance: entry.distance || "",
       kansla: entry.kansla || "",
       anteckningar: entry.anteckningar || "",
+      sleep: entry.sleep || "",
+      energy: entry.energy || "",
+      pain: painToForm(entry.pain),
       kind: isOffDay(entry) ? entry.kind : "pass",
     });
     if (typeof window !== "undefined" && window.scrollTo) {
@@ -1338,6 +1605,9 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       distance: a.entry.distance || "",
       kansla: a.entry.kansla || "",
       anteckningar: a.entry.anteckningar || "",
+      sleep: a.entry.sleep || "",
+      energy: a.entry.energy || "",
+      pain: painToForm(a.entry.pain),
       kind: isOffDay(a.entry) ? a.entry.kind : "pass",
     });
     if (typeof window !== "undefined" && window.scrollTo) {
@@ -1358,11 +1628,11 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   function buildEntry(id) {
     const { kind, ...rest } = form;
     if (kind === "rest" || kind === "sick") {
-      return { id, date: form.date, user: form.user, kind, sport: [], typ: [], tid: "", kansla: "", anteckningar: form.anteckningar, cr10: true };
+      return { id, date: form.date, user: form.user, kind, sport: [], typ: [], tid: "", kansla: "", anteckningar: form.anteckningar, ...wellbeingOf(form), cr10: true };
     }
-    const { distance, ...base } = rest;
+    const { distance, sleep, energy, pain, ...base } = rest;
     const dist = cleanDistance(distance);
-    return { id, ...base, ...(parseFloat(dist) > 0 ? { distance: dist } : {}), cr10: true };
+    return { id, ...base, ...(parseFloat(dist) > 0 ? { distance: dist } : {}), ...wellbeingOf(form), cr10: true };
   }
   // At most one rest/sick day per user and date. Checks the queue and the saved month (if it can be read).
   async function offDayTaken(ignoreId) {
@@ -1374,7 +1644,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     return !!(r.ok && (r.data || []).some(same));
   }
   const isOff = form.kind === "rest" || form.kind === "sick";
-  const formDirty = form.sport.length > 0 || form.typ.length > 0 || !!form.tid || !!form.distance || !!form.kansla || form.anteckningar.trim() !== "";
+  const formDirty = form.sport.length > 0 || form.typ.length > 0 || !!form.tid || !!form.distance || !!form.kansla || form.anteckningar.trim() !== "" || hasWellbeing(form);
   // "Rensa": empties what was filled in. Date, user and Pass/Vilodag/Sjukdag stay (handy when logging several days in a row).
   function clearForm() {
     setForm((f) => ({ ...emptyForm, user: f.user, date: f.date, kind: f.kind }));
@@ -1384,7 +1654,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   useEffect(() => { setSaveError(null); }, [form.date, form.kind, form.user]);
 
   async function handleSave() {
-    if (!form.date || (!isOff && form.sport.length === 0) || saving) return;
+    if (!form.date || (!isOff && form.sport.length === 0) || !form.pain.every(painRowOk) || saving) return;
     setSaveError(null);
     setSaving(true);
     if (isOff && (await offDayTaken(editingPending ? editingPending.entryId : editingId))) {
@@ -1480,7 +1750,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       results.forEach((r) => { if (r.data) merged.push(...r.data); });
       merged.sort((a, b) => a.date.localeCompare(b.date));
 
-      const header = ["Datum", "Anvandare", "Sport", "Traningstyp", "Tid (min)", "Anstrangning (1-10)", "Anteckningar", "Typ", "Distans (km)"];
+      const header = ["Datum", "Anvandare", "Sport", "Traningstyp", "Tid (min)", "Anstrangning (1-10)", "Anteckningar", "Typ", "Distans (km)", "Somn (1-5)", "Energi (1-5)", "Smarta"];
       const rows = merged.map((e) => [
         e.date,
         userName(e.user || "niva"),
@@ -1491,6 +1761,9 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         e.anteckningar || "",
         kindLabel(e.kind),
         distNum(e) ? String(distNum(e)).replace(".", ",") : "",
+        e.sleep || "",
+        e.energy || "",
+        painToCsv(e.pain),
       ]);
       const csv = [header, ...rows]
         .map((row) => row.map(csvEscape).join(";"))
@@ -1565,6 +1838,9 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         kansla: header.findIndex((h) => h.startsWith("anstrangning") || h.startsWith("kansla")),
         anteckningar: header.indexOf("anteckningar"),
         distance: header.indexOf("distans (km)"), // optional, last column since 1.6.4
+        sleep: header.indexOf("somn (1-5)"), // optional, since 1.7.0
+        energy: header.indexOf("energi (1-5)"),
+        pain: header.indexOf("smarta"),
         kind: header.indexOf("typ"), // optional, last column since 1.5.2; missing = Pass
       };
       if (idx.date === -1) {
@@ -1600,6 +1876,9 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
           cr10: true,
           anteckningar: idx.anteckningar > -1 ? (r[idx.anteckningar] || "") : "",
         };
+        if (idx.sleep > -1 && /^[1-5]$/.test((r[idx.sleep] || "").trim())) entry.sleep = r[idx.sleep].trim();
+        if (idx.energy > -1 && /^[1-5]$/.test((r[idx.energy] || "").trim())) entry.energy = r[idx.energy].trim();
+        if (idx.pain > -1) { const pl = painFromCsv(r[idx.pain]); if (pl.length) entry.pain = pl; }
         const mk = monthKeyOf(date);
         if (!byMonth[mk]) byMonth[mk] = [];
         byMonth[mk].push(entry);
@@ -1609,7 +1888,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       let failedMonths = 0;
       const monthKeys = Object.keys(byMonth);
       for (const mk of monthKeys) {
-        const sig = (e) => [e.date, e.user, (e.sport||[]).join(","), (e.typ||[]).join(","), e.tid, e.distance || "", e.kansla, e.anteckningar, e.kind || ""].join("|");
+        const sig = (e) => [e.date, e.user, (e.sport||[]).join(","), (e.typ||[]).join(","), e.tid, e.distance || "", e.kansla, e.anteckningar, e.kind || "", e.sleep || "", e.energy || "", JSON.stringify(e.pain || [])].join("|");
         // the merge runs on the latest data of that month (see saveKey), so nothing saved meanwhile is overwritten
         const r = await saveMonth(mk, (existing) => {
           const existingSigs = new Set(existing.map(sig));
@@ -1714,7 +1993,8 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const offDaysInList = sortedMonthEntries.filter(isOffDay).length;
   const listEntries = hideOffDays ? sortedMonthEntries.filter((e) => !isOffDay(e)) : sortedMonthEntries;
 
-  const canSave = form.date && (isOff || form.sport.length > 0) && !saving;
+  const painOk = form.pain.every(painRowOk);
+  const canSave = form.date && (isOff || form.sport.length > 0) && painOk && !saving;
 
   return (
     <div className="w-full" style={{ backgroundColor: PAPER, color: INK }}>
@@ -2008,6 +2288,9 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 </p>
               </div>
               </>)}
+              <WellbeingSection key={`well-${formEpoch}-${editingId || (editingPending && editingPending.qid) || ""}`}
+                                form={form} setForm={setForm} isOff={isOff}
+                                counts={(usage && usage[form.user] && usage[form.user].pain) || NO_COUNTS} />
               <div className="mb-4">
                 <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
                   ANTECKNINGAR
@@ -2044,6 +2327,9 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 {(editingId || editingPending) ? "Avbryt" : "Rensa"}
               </button>
               </div>
+              {!painOk && (
+                <p className="text-xs mt-2" data-testid="pain-hint" style={{ color: ERR }}>Fyll i smärta (0–10) för alla kroppsdelar, eller ta bort dem.</p>
+              )}
               {saveError && (
                 <p className="text-sm mt-2" role="alert" data-testid="save-error" style={{ color: ERR }}>{saveError}</p>
               )}
@@ -2139,6 +2425,11 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                       ? e.anteckningar.slice(0, 42) + "…"
                       : e.anteckningar;
                     const off = isOffDay(e);
+                    const pains = e.pain || [];
+                    // "Häl V 6" when it fits on the row, otherwise just a dot
+                    const shownFacts = [`${e.date.slice(8)}/${e.date.slice(5, 7)}`, off ? kindLabel(e.kind) : (e.sport || []).join(" "), ...(off ? [] : [(e.typ || []).join(" "), fmtTid(e.tid), distNum(e) ? `${fmtKm(distNum(e))} km` : "", e.kansla ? `${e.kansla}/10` : ""])].filter(Boolean);
+                    const factsLen = shownFacts.join(" · ").length;
+                    const painInline = pains.length === 1 && factsLen + 3 + painShort(pains[0]).length <= 36;
                     return (
                       <div key={e.id} data-testid={off ? "offday-row" : "pass-row"} className="rounded-lg border text-sm overflow-hidden"
                            style={{ borderColor: LINE, backgroundColor: off ? OFFROW : CARD }}>
@@ -2174,6 +2465,10 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                                     {e.kansla && <span data-testid="effort" style={{ color: MUTED }}> · {e.kansla}/10</span>}
                                   </>
                                 )}
+                                {pains.length > 0 && (painInline
+                                  ? <span data-testid="pain-badge" style={{ color: DANGER }}> · {painShort(pains[0])}</span>
+                                  : <span data-testid="pain-dot" title="Smärta" aria-label="Smärta" className="inline-block rounded-full align-middle ml-1.5"
+                                          style={{ width: 8, height: 8, backgroundColor: DANGER }} />)}
                               </span>
                               {hasNote && !isExpanded && (
                                 <span className="truncate min-w-0 flex-1" style={{ color: FAINT }}>· {preview}</span>
@@ -2203,6 +2498,19 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                               <p className="text-sm mb-1" data-testid="pace" style={{ color: INK }}>
                                 <span style={{ color: MUTED }}>Tempo </span>{paceOf(e)}
                               </p>
+                            )}
+                            {(e.sleep || e.energy) && (
+                              <p className="text-sm mb-1" data-testid="well-line" style={{ color: INK }}>
+                                {e.sleep && <><span style={{ color: MUTED }}>Sömn </span>{e.sleep} – {SLEEP_LABELS[Number(e.sleep) - 1]}</>}
+                                {e.sleep && e.energy && <span style={{ color: MUTED }}> · </span>}
+                                {e.energy && <><span style={{ color: MUTED }}>Energi </span>{e.energy} – {ENERGY_LABELS[Number(e.energy) - 1]}</>}
+                              </p>
+                            )}
+                            {pains.length > 0 && (
+                              <div className="mb-1" data-testid="pain-lines">
+                                <div className="text-xs font-bold" style={{ color: MUTED }}>{off ? "SMÄRTA IDAG" : "SMÄRTA UNDER PASSET"}</div>
+                                {pains.map((p, i) => <p key={i} className="text-sm" data-testid="pain-line" style={{ color: INK }}>{painLong(p)}</p>)}
+                              </div>
                             )}
                             {hasNote ? (
                               <p className="text-sm whitespace-pre-wrap" style={{ color: INK }}>

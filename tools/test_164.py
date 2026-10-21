@@ -93,9 +93,9 @@ with sync_playwright() as pw:
         with P.expect_download() as d: menu(P).locator("[data-testid=menu-export]").click()
         txt = open(d.value.path(), encoding="utf-8-sig").read(); lines = txt.splitlines()
         hdr = lines[0].split(";")
-        check("6 CSV has 'Distans (km)' as the last column", hdr[-1] == "Distans (km)" and hdr[-2] == "Typ", str(hdr))
+        check("6 CSV has 'Distans (km)' as the column after Typ", hdr[8] == "Distans (km)" and hdr[7] == "Typ", str(hdr))
         l22 = [l for l in lines if l.startswith(f"{M}-22;Niva")][0].split(";"); l28 = [l for l in lines if l.startswith(f"{M}-28;Niva")][0].split(";"); l01 = [l for l in lines if l.startswith(f"{M}-01;Niva")][0].split(";")
-        check("6 Distances use a decimal comma, empty when not logged", l22[-1] == "5" and l28[-1].strip('"') == "7,5" and l01[-1] == "", f"{l22[-1]!r} {l28[-1]!r} {l01[-1]!r}")
+        check("6 Distances use a decimal comma, empty when not logged", l22[8] == "5" and l28[8].strip('"') == "7,5" and l01[8] == "", f"{l22[8]!r} {l28[8]!r} {l01[8]!r}")
         ctx.close()
         # import into an empty diary keeps distance (round trip), and an old CSV without the column still imports
         csv_path = "/tmp/t164.csv"; open(csv_path, "w", encoding="utf-8-sig").write(txt)
