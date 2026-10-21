@@ -31,14 +31,14 @@ with sync_playwright() as pw:
     try:
         ctx, P = open_app(browser, port, "niva", "light", "light")
         # ---- 1. Field ----
-        tb = P.locator("input[type=number]").first.bounding_box(); db = P.locator("[data-testid=distance-input]").bounding_box()
+        tb = P.locator("[data-testid=tid-min]").bounding_box(); sb = P.locator("[data-testid=tid-sec]").bounding_box(); tb = dict(tb, width=sb["x"] + sb["width"] - tb["x"]); db = P.locator("[data-testid=distance-input]").bounding_box()
         check("1 Distance field sits next to Tid on the same row, same width", abs(tb["y"] - db["y"]) < 3 and db["x"] > tb["x"] + tb["width"] and abs(tb["width"] - db["width"]) < 4 and db["x"] + db["width"] <= 390 - 12, f"{tb} {db}")
         check("1 Label reads DISTANS (KM)", "DISTANS (KM)" in P.locator("body").inner_text())
         P.locator("[data-testid=distance-input]").fill("5,2abc.9")
         check("1 Input accepts comma, strips letters, keeps max 2 decimals", P.locator("[data-testid=distance-input]").input_value() in ("5,29", "5,2"), P.locator("[data-testid=distance-input]").input_value())
         P.locator("[data-testid=distance-input]").fill("5,2")
         P.locator("[data-testid=sport-group] button[aria-pressed]", has_text=re.compile("^Löpning$")).click()
-        P.fill("input[type=number]", "30"); P.fill("input[type=date]", f"{M}-29")
+        P.fill("[data-testid=tid-min]", "30"); P.fill("input[type=date]", f"{M}-29")
         P.locator("button.flex-1", has_text=re.compile("^Spara")).first.click(); P.wait_for_timeout(1500)
         raw = json.loads(json.load(urllib.request.urlopen(f"http://localhost:{port}/__raw?path=diaries/{CODE}/entries:{M}")))
         mine = [e for e in raw if e["date"] == f"{M}-29" and e["user"] == "niva" and e.get("distance")]

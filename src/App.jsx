@@ -5,10 +5,14 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun } from "lucide-react";
 
-export const APP_VERSION = "1.6.5";
-export const APP_DATE = "2026-10-20";
+export const APP_VERSION = "1.6.6";
+export const APP_DATE = "2026-10-21";
 
 const CHANGELOG = [
+  { version: "1.6.6", date: "2026-10-21", items: [
+    "Tid kan nu anges med sekunder (min : sek). Sekunderna är valfria",
+    "Tempot räknas på exakt tid, till exempel 4,07 km på 40:46 ger 10:01 min/km",
+    "CSV-filen skriver tiden som 40:46 när sekunder finns. Import förstår både 40:46 och hela minuter" ] },
   { version: "1.6.5", date: "2026-10-21", items: [
     "Statistik per vecka: välj Vecka, Månad eller Alla månader. Bläddra med pilarna (både vecka och månad) eller tryck på veckan eller månaden för att hoppa till ett valfritt datum",
     "Snabbare statistiksida: diagrammen animeras inte längre, och det går att klicka direkt när du byter person" ] },
@@ -545,10 +549,38 @@ function cleanDistance(v) {
 }
 const distNum = (e) => { const d = parseFloat(e && e.distance); return d > 0 ? d : 0; };
 const fmtKm = (km) => (Math.round(km * 100) / 100).toLocaleString("sv-SE", { maximumFractionDigits: 2 });
+// ---- Duration (minutes, optional seconds) ----
+// Stored in the existing field "tid" as a plain string of (decimal) minutes: "45" or "40.7667" for 40:46.
+// Old whole-minute passes are unchanged. Seconds are optional.
+function tidSeconds(tid) { const m = parseFloat(tid); return m > 0 ? Math.round(m * 60) : 0; }
+function splitTid(tid) {
+  const t = tidSeconds(tid);
+  if (!t) return { m: "", s: "" };
+  return { m: String(Math.floor(t / 60)), s: t % 60 ? String(t % 60) : "" };
+}
+function joinTid(m, s) {
+  const mm = parseInt(m, 10) || 0, ss = Math.min(59, parseInt(s, 10) || 0);
+  const total = mm * 60 + ss;
+  if (!total) return "";
+  return ss ? String(Math.round((total / 60) * 10000) / 10000) : String(mm);
+}
+function fmtTid(tid) {
+  const t = tidSeconds(tid);
+  if (!t) return null;
+  const m = Math.floor(t / 60), s = t % 60;
+  return s ? `${m}:${String(s).padStart(2, "0")} min` : `${m} min`;
+}
+// CSV: "40:46" when seconds exist, otherwise the plain minutes as before. Import accepts "40:46", "45" and "40,5".
+function tidToCsv(tid) { const t = tidSeconds(tid); return t % 60 ? `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}` : (tid || ""); }
+function tidFromCsv(v) {
+  const t = String(v == null ? "" : v).trim();
+  const m = t.match(/^(\d+):(\d{1,2})$/);
+  return m ? joinTid(m[1], m[2]) : t.replace(",", ".");
+}
 // Pace is shown only for passes with exactly one activity among Löpning, Promenad and Cykel (otherwise it is unclear what the distance belongs to).
 function paceOf(e) {
   const sp = e && e.sport || [];
-  const km = distNum(e), min = parseFloat(e && e.tid) || 0;
+  const km = distNum(e), min = tidSeconds(e && e.tid) / 60;
   if (sp.length !== 1 || !km || !min) return null;
   if (sp[0] === "CY") return `${(km / (min / 60)).toLocaleString("sv-SE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km/h`;
   if (sp[0] === "LÖ" || sp[0] === "PR") {
@@ -564,7 +596,7 @@ function entryLine(e) {
     `${e.date.slice(8)}/${e.date.slice(5, 7)}`,
     (e.sport || []).join(" "),
     (e.typ || []).length ? e.typ.join(" ") : null,
-    e.tid ? `${e.tid} min` : null,
+    fmtTid(e.tid),
     distNum(e) ? `${fmtKm(distNum(e))} km` : null,
     e.kansla ? `ansträngning ${e.kansla}` : null,
   ].filter(Boolean).join(" · ");
@@ -1243,7 +1275,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const lastText = lastEntry ? [
     (lastEntry.sport || []).map((c) => labelOf(SPORTS, c)).join(" + "),
     (lastEntry.typ || []).map((c) => labelOf(TYPES, c)).join(" + "),
-    lastEntry.tid ? `${lastEntry.tid} min` : null,
+    fmtTid(lastEntry.tid),
   ].filter(Boolean).join(" · ") : "";
   // Effort (ansträngning), date and notes are never copied: effort is a fresh judgement of this session.
   function applyLast() {
@@ -1454,7 +1486,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         userName(e.user || "niva"),
         (e.sport || []).join(" "),
         (e.typ || []).join(" "),
-        e.tid || "",
+        tidToCsv(e.tid),
         e.kansla || "",
         e.anteckningar || "",
         kindLabel(e.kind),
@@ -1562,7 +1594,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
           user: idx.user > -1 ? userLabelToCode(r[idx.user] || "Niva") : "niva",
           sport: idx.sport > -1 ? (r[idx.sport] || "").split(" ").filter(Boolean) : [],
           typ: idx.typ > -1 ? (r[idx.typ] || "").split(" ").filter(Boolean) : [],
-          tid: idx.tid > -1 ? (r[idx.tid] || "") : "",
+          tid: idx.tid > -1 ? tidFromCsv(r[idx.tid]) : "",
           kansla: idx.kansla > -1 ? scaleImported(r[idx.kansla]) : "",
           ...(idx.distance > -1 && parseFloat(cleanDistance(r[idx.distance])) > 0 && !kind ? { distance: cleanDistance(r[idx.distance]) } : {}),
           cr10: true,
@@ -1915,15 +1947,25 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
               <div className="mb-4 flex gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
-                    TID (MIN)
+                    TID (MIN : SEK)
                   </div>
-                  <input
-                    type="number" inputMode="numeric" min="0" placeholder="t.ex. 60"
-                    value={form.tid}
-                    onChange={(e) => setForm((f) => ({ ...f, tid: e.target.value }))}
-                    className="border rounded-lg px-3 py-2 text-sm w-full"
-                    style={{ borderColor: LINE2 }}
-                  />
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="text" inputMode="numeric" placeholder="min" data-testid="tid-min" aria-label="Minuter"
+                      value={splitTid(form.tid).m}
+                      onChange={(e) => setForm((f) => ({ ...f, tid: joinTid(e.target.value.replace(/\D/g, "").slice(0, 4), splitTid(f.tid).s) }))}
+                      className="border rounded-lg px-3 py-2 text-sm w-full min-w-0"
+                      style={{ borderColor: LINE2 }}
+                    />
+                    <span className="text-sm" style={{ color: MUTED }}>:</span>
+                    <input
+                      type="text" inputMode="numeric" placeholder="sek" data-testid="tid-sec" aria-label="Sekunder (valfritt)"
+                      value={splitTid(form.tid).s}
+                      onChange={(e) => setForm((f) => ({ ...f, tid: joinTid(splitTid(f.tid).m, e.target.value.replace(/\D/g, "").slice(0, 2)) }))}
+                      className="border rounded-lg px-3 py-2 text-sm w-full min-w-0"
+                      style={{ borderColor: LINE2 }}
+                    />
+                  </div>
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-bold mb-2" style={{ color: LABEL }}>
@@ -2127,7 +2169,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                                     {(e.typ||[]).length > 0 && (
                                       <span style={{ color: MUTED }}> · {e.typ.join(" ")}</span>
                                     )}
-                                    {e.tid && <span style={{ color: MUTED }}> · {e.tid} min</span>}
+                                    {fmtTid(e.tid) && <span data-testid="tid-text" style={{ color: MUTED }}> · {fmtTid(e.tid)}</span>}
                                     {distNum(e) > 0 && <span data-testid="distance" style={{ color: MUTED }}> · {fmtKm(distNum(e))} km</span>}
                                     {e.kansla && <span data-testid="effort" style={{ color: MUTED }}> · {e.kansla}/10</span>}
                                   </>

@@ -123,7 +123,7 @@ with sync_playwright() as pw:
         check("5 A Cykel pass is saved with code CY and shown in the list", any(e["sport"] == ["CY"] for e in raw) and P.locator("[data-testid=pass-row]", has_text="CY").count() == 1)
         P.locator("[data-testid=sport-group-more]").click()
         P.locator("[data-testid=sport-group] button[aria-pressed]", has_text=re.compile("^Rullskidor$")).click()
-        P.fill("input[type=date]", f"{M}-12"); P.fill("input[inputmode=numeric]", "60"); P.get_by_role("button", name="6", exact=True).first.click()
+        P.fill("input[type=date]", f"{M}-12"); P.fill("[data-testid=tid-min]", "60"); P.get_by_role("button", name="6", exact=True).first.click()
         P.locator("button.flex-1", has_text=re.compile("^Spara")).first.click(); P.wait_for_timeout(1500)
         raw = json.loads(json.load(urllib.request.urlopen(f"http://localhost:{port}/__raw?path=diaries/{CODE}/entries:{M}")))
         check("5 A Rullskidor pass is saved with code RU", any(e["sport"] == ["RU"] for e in raw))

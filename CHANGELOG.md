@@ -1,5 +1,11 @@
 # Changelog / Ändringslogg
 
+## 1.6.6 – 2026-10-21
+
+- Tid kan anges med sekunder (min : sek). Sekunderna är valfria och gamla pass med hela minuter fungerar som förut
+- Tempot räknas på exakt tid, till exempel 4,07 km på 40:46 ger 10:01 min/km
+- CSV-filen skriver tiden som 40:46 när sekunder finns. Import förstår både 40:46 och hela minuter
+
 ## 1.6.5 – 2026-10-21
 
 - Statistik per vecka: välj Vecka, Månad eller Alla månader. Bläddra med pilarna (både vecka och månad) eller tryck på veckan eller månaden för att hoppa till ett valfritt datum

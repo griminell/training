@@ -133,7 +133,7 @@ with sync_playwright() as pw:
         scope(P, "week"); P.locator("button[aria-pressed]", has_text="Niva").first.click(); P.wait_for_timeout(700)
         before = int(stat_value(P, "Antal pass") or 0)
         tab(P, "Logga pass")
-        P.locator("[data-testid=sport-group] button[aria-pressed]", has_text=re.compile("^Löpning$")).click(); P.fill("input[type=number]", "30")
+        P.locator("[data-testid=sport-group] button[aria-pressed]", has_text=re.compile("^Löpning$")).click(); P.fill("[data-testid=tid-min]", "30")
         P.fill("input[type=date]", (prev_mon + datetime.timedelta(days=2)).isoformat())
         P.locator("button.flex-1", has_text=re.compile("^Spara")).first.click(); P.wait_for_timeout(1800)
         tab(P, "Statistik"); P.wait_for_timeout(1200)
