@@ -1,5 +1,9 @@
 # Changelog / Ändringslogg
 
+## 1.7.4 – 2026-10-21
+
+- Redigeringspanelen i Historik anpassar sig nu till tangentbordet på telefonen, så det du skriver syns ovanför tangentbordet och Spara-knappen går att nå
+
 ## 1.7.3 – 2026-10-21
 
 - Ny flik Historik: bläddra månad för månad med veckorubriker och veckosummor (pass, tid, belastning, distans, vilo- och sjukdagar och högsta smärta per kroppsdel)

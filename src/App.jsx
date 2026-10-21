@@ -5,10 +5,12 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun, History, Search } from "lucide-react";
 
-export const APP_VERSION = "1.7.3";
+export const APP_VERSION = "1.7.4";
 export const APP_DATE = "2026-10-21";
 
 const CHANGELOG = [
+  { version: "1.7.4", date: "2026-10-21", items: [
+    "Redigeringspanelen i Historik anpassar sig nu till tangentbordet på telefonen, så det du skriver syns ovanför tangentbordet och Spara-knappen går att nå" ] },
   { version: "1.7.3", date: "2026-10-21", items: [
     "Ny flik Historik: bläddra månad för månad med veckorubriker och veckosummor (pass, tid, belastning, distans, vilo- och sjukdagar och högsta smärta per kroppsdel)",
     "Sök: letar i sammanfattning, smärtnoteringar, kroppsdelar, aktiviteter och träningstyper. När du skriver söker den i alla månader",
@@ -1367,6 +1369,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetBase, setSheetBase] = useState("");
   const sheetOpenRef = React.useRef(false);
+  const [sheetVv, setSheetVv] = useState(null);
   const sheetStash = React.useRef(null);
   const [users, setUsers] = useState(DEFAULT_USERS);
   const [showUsers, setShowUsers] = useState(false);
@@ -1761,7 +1764,27 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     document.body.style.overflow = "hidden";
     const onKey = (e) => { if (e.key === "Escape") requestCloseRef.current(); };
     document.addEventListener("keydown", onKey);
-    return () => { document.body.style.overflow = prev; document.removeEventListener("keydown", onKey); };
+    // iOS keeps the layout viewport full height when the keyboard opens, so follow the visual viewport instead.
+    const vv = window.visualViewport;
+    const onVv = () => {
+      if (!vv) return;
+      setSheetVv({ top: vv.offsetTop, height: vv.height, kb: window.innerHeight - vv.height > 120 });
+    };
+    // Keep the focused field visible above the keyboard.
+    const onFocus = (e) => {
+      const el = e.target;
+      if (!el || !/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+      setTimeout(() => { try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (err) { /* ignore */ } }, 350);
+    };
+    onVv();
+    if (vv) { vv.addEventListener("resize", onVv); vv.addEventListener("scroll", onVv); }
+    document.addEventListener("focusin", onFocus);
+    return () => {
+      document.body.style.overflow = prev; document.removeEventListener("keydown", onKey);
+      if (vv) { vv.removeEventListener("resize", onVv); vv.removeEventListener("scroll", onVv); }
+      document.removeEventListener("focusin", onFocus);
+      setSheetVv(null);
+    };
   }, [sheetOpen]);
 
   // Load a queued (Ej sparat) pass back into the form. Saving replaces the queued pass.
@@ -3105,10 +3128,11 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         )}
 
         {sheetOpen && (
-          <div className="fixed inset-0 z-40 flex flex-col justify-end" data-testid="edit-sheet-backdrop" style={{ backgroundColor: "rgba(0,0,0,0.4)" }}
+          <div className="fixed left-0 right-0 z-40 flex flex-col justify-end" data-testid="edit-sheet-backdrop"
+               style={{ backgroundColor: "rgba(0,0,0,0.4)", top: sheetVv ? sheetVv.top : 0, height: sheetVv ? sheetVv.height : "100%" }}
                onClick={(e) => { if (e.target === e.currentTarget) requestCloseSheet(); }}>
             <div role="dialog" aria-modal="true" aria-label="Redigera" data-testid="edit-sheet" className="bg-card w-full max-w-xl mx-auto rounded-t-2xl flex flex-col sheet-up"
-                 style={{ height: "calc(100dvh - 92px)", maxHeight: "calc(100vh - 92px)", color: INK }}>
+                 style={{ height: sheetVv && sheetVv.kb ? "calc(100% - 12px)" : "calc(100% - 92px)", color: INK }}>
               <div className="flex items-center justify-between px-4 py-3 border-b shrink-0" style={{ borderColor: LINE }}>
                 <div className="flex items-center gap-1.5 text-sm font-bold" style={{ color: ACCENT_DARK }}>
                   <Pencil size={14} /> Redigerar loggat pass
