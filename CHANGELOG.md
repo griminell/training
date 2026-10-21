@@ -1,5 +1,12 @@
 # Changelog / Ändringslogg
 
+## 1.7.8 – 2026-10-22
+
+- Säkerhetskopia: administratören kan ta en kopia av allt (alla pass, alla personer) som en fil, och återställa från den. Återställningen lägger bara till pass som saknas, den skriver aldrig över eller raderar något
+- Administratör slås på per person i Hantera användare (Redigera). Det gäller på alla enheter där den personen är vald. Övriga ser varken säkerhetskopia, återställning eller påminnelse
+- Påminnelse längst ner när det gått mer än fyra veckor sedan senaste säkerhetskopia. Tiden sparas delat, så en kopia på en enhet räknas för alla
+- CSV-valen i menyn heter nu Importera (CSV) och Exportera (CSV)
+
 ## 1.7.7 – 2026-10-22
 
 - Bredare färgpalett för aktivitet och träningstyp i Statistik och kalendern: fler färger i stället för bara nyanser av din färg. Din färg går till det du tränat mest de senaste 30 dagarna, och varje aktivitet behåller sin färg

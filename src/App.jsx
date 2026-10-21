@@ -5,10 +5,15 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun, History, Search, SlidersHorizontal } from "lucide-react";
 
-export const APP_VERSION = "1.7.7";
+export const APP_VERSION = "1.7.8";
 export const APP_DATE = "2026-10-21";
 
 const CHANGELOG = [
+  { version: "1.7.8", date: "2026-10-22", items: [
+    "Säkerhetskopia: administratören kan ta en kopia av allt (alla pass, alla personer) som en fil, och återställa från den. Återställningen lägger bara till pass som saknas, den skriver aldrig över eller raderar något",
+    "Administratör slås på per person i Hantera användare (Redigera). Det gäller på alla enheter där den personen är vald. Övriga ser varken säkerhetskopia, återställning eller påminnelse",
+    "Påminnelse längst ner när det gått mer än fyra veckor sedan senaste säkerhetskopia. Tiden sparas delat, så en kopia på en enhet räknas för alla",
+    "CSV-valen i menyn heter nu Importera (CSV) och Exportera (CSV)" ] },
   { version: "1.7.7", date: "2026-10-22", items: [
     "Bredare färgpalett för aktivitet och träningstyp i Statistik och kalendern: fler färger i stället för bara nyanser av din färg. Din färg går till det du tränat mest de senaste 30 dagarna, och varje aktivitet behåller sin färg",
     "Förslaget om fysio eller läkare ligger nu under diagrammet",
@@ -1041,7 +1046,40 @@ async function findLastEntry(userId, monthsDesc, queuedList) {
 }
 
 // Confirmation dialog in the app's style (replaces the browser's confirm()).
-function ConfirmModal({ title, text, confirmLabel, busy, error, onConfirm, onCancel }) {
+// ---- Backup (JSON): everything in one file. Never contains the database address or the share code. ----
+const BACKUP_FORMAT = 1;
+const BACKUP_DAYS = 28; // reminder after this many days without a backup
+const entrySig = (e) => [e.date, e.user, (e.sport || []).join(","), (e.typ || []).join(","), e.tid, e.distance || "", e.kansla, e.anteckningar, e.kind || "", e.sleep || "", e.energy || "", JSON.stringify(e.pain || [])].join("|");
+function buildBackup(usersList, monthsMap) {
+  return { app: "traningsdagbok", format: BACKUP_FORMAT, createdAt: new Date().toISOString(), appVersion: APP_VERSION, users: usersList, months: monthsMap };
+}
+// Checks a parsed file and returns { users, months } with only valid data, or { error }.
+function readBackup(obj) {
+  if (!obj || typeof obj !== "object" || obj.app !== "traningsdagbok" || obj.format !== BACKUP_FORMAT) return { error: "Det här är ingen säkerhetskopia från Träningsdagboken." };
+  if (!obj.months || typeof obj.months !== "object" || Array.isArray(obj.months) || !Array.isArray(obj.users)) return { error: "Säkerhetskopian är trasig eller ofullständig." };
+  const months = {};
+  let skipped = 0;
+  Object.entries(obj.months).forEach(([mk, list]) => {
+    if (!/^\d{4}-\d{2}$/.test(mk) || !Array.isArray(list)) { skipped += Array.isArray(list) ? list.length : 1; return; }
+    const ok = normalizeEntries(list.filter((e) => e && typeof e === "object" && typeof e.id === "string" && e.id && typeof e.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(e.date) && e.date.slice(0, 7) === mk));
+    skipped += list.length - ok.length;
+    if (ok.length) months[mk] = ok;
+  });
+  const users = obj.users.filter((u) => u && typeof u.id === "string" && u.id && typeof u.name === "string" && u.name && typeof u.color === "string" && /^#[0-9a-fA-F]{6}$/.test(u.color));
+  return { users, months, skipped, createdAt: typeof obj.createdAt === "string" ? obj.createdAt : null };
+}
+function agoText(iso, now = Date.now()) {
+  const t = Date.parse(iso);
+  if (isNaN(t)) return "okänt";
+  const d = Math.max(0, Math.floor((now - t) / 86400000));
+  if (d === 0) return "idag";
+  if (d === 1) return "igår";
+  if (d < 14) return `${d} dagar sedan`;
+  if (d < 60) return `${Math.floor(d / 7)} veckor sedan`;
+  return `${Math.floor(d / 30)} månader sedan`;
+}
+
+function ConfirmModal({ title, text, confirmLabel, busy, error, onConfirm, onCancel, neutral }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.4)" }}
          onClick={(e) => { if (e.target === e.currentTarget && !busy) onCancel(); }}>
@@ -1056,7 +1094,7 @@ function ConfirmModal({ title, text, confirmLabel, busy, error, onConfirm, onCan
             Avbryt
           </button>
           <button type="button" onClick={onConfirm} disabled={busy}
-                  className="rounded-lg text-sm font-bold text-on-accent flex items-center justify-center gap-2" style={{ minHeight: 44, backgroundColor: DANGER, opacity: busy ? 0.6 : 1 }}>
+                  className="rounded-lg text-sm font-bold text-on-accent flex items-center justify-center gap-2" style={{ minHeight: 44, backgroundColor: neutral ? ACCENT : DANGER, opacity: busy ? 0.6 : 1 }}>
             {busy && <Loader2 size={15} className="animate-spin" />}{confirmLabel}
           </button>
         </div>
@@ -1101,12 +1139,13 @@ function UserManager({ users, localHidden, onLocalHide, onUpdate, onClose }) {
   const [name, setName] = useState("");
   const [color, setColor] = useState(COLOR_PRESETS[2]);
   const [error, setError] = useState("");
+  const [admin, setAdmin] = useState(false);
   const [busy, setBusy] = useState(false);
   const active = users.filter((u) => !u.hidden && !localHidden.includes(u.id));
   const localList = users.filter((u) => !u.hidden && localHidden.includes(u.id));
   const archived = users.filter((u) => u.hidden);
 
-  function openEdit(u) { setEditingId(u.id); setAdding(false); setName(u.name); setColor(u.color); setError(""); }
+  function openEdit(u) { setEditingId(u.id); setAdding(false); setName(u.name); setColor(u.color); setAdmin(u.admin === true); setError(""); }
   function openAdd() {
     const used = users.map((u) => u.color.toUpperCase());
     setAdding(true); setEditingId(null); setName("");
@@ -1140,7 +1179,11 @@ function UserManager({ users, localHidden, onLocalHide, onUpdate, onClose }) {
     } else {
       run((list) => {
         const bad = validName(list, editingId); if (bad) return bad;
-        return list.map((u) => (u.id === editingId ? { ...u, name: n, color: c } : u));
+        return list.map((u) => {
+          if (u.id !== editingId) return u;
+          const { admin: _old, ...rest } = u;
+          return { ...rest, name: n, color: c, ...(admin ? { admin: true } : {}) };
+        });
       }, closeForm);
     }
   }
@@ -1167,6 +1210,18 @@ function UserManager({ users, localHidden, onLocalHide, onUpdate, onClose }) {
              className="w-full border rounded-lg px-3 py-2 text-sm mb-3" style={{ borderColor: LINE2 }} />
       <div className="text-xs font-bold mb-1.5" style={{ color: LABEL }}>FÄRGTEMA</div>
       <ColorPicker value={color} onChange={setColor} />
+      {editingId && (
+        <button type="button" role="switch" aria-checked={admin} data-testid="user-admin-switch" onClick={() => setAdmin((v) => !v)}
+                className="w-full flex items-center gap-3 text-left mt-3" style={{ minHeight: 44, color: INK }}>
+          <span className="inline-flex items-center rounded-full shrink-0" style={{ width: 40, height: 24, padding: 2, backgroundColor: admin ? ACCENT : LINE2, justifyContent: admin ? "flex-end" : "flex-start" }}>
+            <span className="inline-block rounded-full" style={{ width: 20, height: 20, backgroundColor: CARD }} />
+          </span>
+          <span className="text-sm">
+            <span className="font-semibold">Administratör</span>
+            <span className="block text-xs" style={{ color: MUTED }}>Ser säkerhetskopia, återställning och påminnelse, på alla enheter där den här personen är vald.</span>
+          </span>
+        </button>
+      )}
       <div className="flex gap-2 mt-3">
         <button type="button" onClick={submit} disabled={busy}
                 className="px-4 py-2 rounded-lg text-sm font-semibold text-on-accent"
@@ -1550,6 +1605,12 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const [hideOffDays, setHideOffDays] = useState(getHideOffDays);
   const [showMenu, setShowMenu] = useState(false); // person menu (top right)
   const importRef = React.useRef(null);
+  const restoreRef = React.useRef(null);
+  const [backupInfo, setBackupInfo] = useState({ loaded: false, at: null }); // shared: meta:backup
+  const [backingUp, setBackingUp] = useState(false);
+  const [restorePlan, setRestorePlan] = useState(null); // { data, counts } while the confirmation is open
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [restoreError, setRestoreError] = useState(null);
   useEffect(() => {
     if (!showMenu) return undefined;
     const onKey = (e) => { if (e.key === "Escape") setShowMenu(false); };
@@ -1667,6 +1728,17 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     } catch (e) { /* behåll nuvarande lista */ }
   }, []);
   useEffect(() => { loadUsers(); }, [loadUsers]);
+  const isAdmin = (users.find((u) => u.id === form.user) || {}).admin === true;
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+    let dead = false;
+    (async () => {
+      const r = await safeGetResult("meta:backup");
+      if (!dead && r.ok) setBackupInfo({ loaded: true, at: r.data && typeof r.data.at === "string" ? r.data.at : null });
+    })();
+    return () => { dead = true; };
+  }, [isAdmin, liveTick]);
+  const backupOverdue = isAdmin && backupInfo.loaded && (!backupInfo.at || Date.now() - Date.parse(backupInfo.at) > BACKUP_DAYS * 86400000);
 
   useEffect(() => {
     if (!usersLoaded) return;
@@ -2304,6 +2376,105 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       console.error("export failed", e);
     }
     setExporting(false);
+  }
+
+  // ---- Backup / restore (administrator only) ----
+  async function handleBackup() {
+    if (backingUp) return;
+    setBackingUp(true);
+    setImportMsg(null);
+    try {
+      const months = allMonths.length ? allMonths : await safeListMonths();
+      const results = await Promise.all(months.map((m) => safeGetResult(`entries:${m}`)));
+      const ur = await safeGetResult("meta:users");
+      if (!ur.ok || results.some((r) => !r.ok)) {
+        // never hand out a backup that silently misses something
+        setImportMsg({ ok: false, text: "Säkerhetskopian avbröts: kunde inte hämta allt. Försök igen." });
+        setBackingUp(false);
+        return;
+      }
+      const map = {};
+      let n = 0;
+      months.forEach((m, i) => { const d = results[i].data; if (d && d.length) { map[m] = d; n += d.length; } });
+      const usersList = Array.isArray(ur.data) && ur.data.length ? ur.data : users;
+      const file = buildBackup(usersList, map);
+      const blob = new Blob([JSON.stringify(file, null, 1)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `traningsdagbok-backup-${todayISO()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      const at = new Date().toISOString();
+      const r = await saveKey("meta:backup", () => ({ at, by: form.user, pass: n }), (v) => v, null);
+      if (r.status === "ok") setBackupInfo({ loaded: true, at });
+      setImportMsg({ ok: true, text: `Säkerhetskopia sparad: ${n} pass och ${usersList.length} personer. Filen innehåller hälsodata, förvara den privat.` });
+    } catch (e) {
+      console.error("backup failed", e);
+      setImportMsg({ ok: false, text: "Säkerhetskopian misslyckades. Försök igen." });
+    }
+    setBackingUp(false);
+  }
+
+  async function handleRestoreFile(file) {
+    setImportMsg(null);
+    let parsed;
+    try { parsed = readBackup(JSON.parse(await file.text())); } catch (e) { parsed = { error: "Det här är ingen säkerhetskopia från Träningsdagboken." }; }
+    if (parsed.error) { setImportMsg({ ok: false, text: parsed.error }); return; }
+    // what is already there: by id or by identical content
+    const known = {};
+    const monthKeys = Object.keys(parsed.months);
+    const have = await Promise.all(monthKeys.map((m) => safeGetResult(`entries:${m}`)));
+    const ur = await safeGetResult("meta:users");
+    if (!ur.ok || have.some((r) => !r.ok)) { setImportMsg({ ok: false, text: "Kunde inte läsa databasen just nu. Försök igen." }); return; }
+    let total = 0, toAdd = 0;
+    monthKeys.forEach((m, i) => {
+      const ex = have[i].data || [];
+      const ids = new Set(ex.map((e) => e.id)), sigs = new Set(ex.map(entrySig));
+      parsed.months[m].forEach((e) => { total++; if (!ids.has(e.id) && !sigs.has(entrySig(e))) toAdd++; });
+      known[m] = true;
+    });
+    const curUsers = Array.isArray(ur.data) && ur.data.length ? ur.data : users;
+    const newUsers = parsed.users.filter((u) => !curUsers.some((c) => c.id === u.id || c.name.toLowerCase() === u.name.toLowerCase()));
+    setRestoreError(null);
+    setRestorePlan({ data: parsed, counts: { total, toAdd, exist: total - toAdd, newUsers: newUsers.length, users: parsed.users.length, skipped: parsed.skipped } });
+  }
+
+  async function doRestore() {
+    if (!restorePlan || restoreBusy) return;
+    setRestoreBusy(true);
+    setRestoreError(null);
+    const { data } = restorePlan;
+    let failed = 0, added = 0;
+    const ur = await updateUsers((list) => {
+      const missing = data.users.filter((u) => !list.some((c) => c.id === u.id || c.name.toLowerCase() === u.name.toLowerCase()));
+      return missing.length ? [...list, ...missing] : list;
+    });
+    if (!ur.ok) failed++;
+    for (const mk of Object.keys(data.months)) {
+      const r = await saveMonth(mk, (existing) => {
+        const ids = new Set(existing.map((e) => e.id)), sigs = new Set(existing.map(entrySig));
+        const add = data.months[mk].filter((e) => !ids.has(e.id) && !sigs.has(entrySig(e)));
+        added += add.length;
+        return add.length ? [...existing, ...add].sort(byDate) : NO_CHANGE;
+      });
+      if (r.status !== "ok") failed++;
+    }
+    syncProtection();
+    await refreshMonthList();
+    await loadMonth(selectedMonthRef.current);
+    setAllEntries(null);
+    setLiveTick((t) => t + 1);
+    loadUsers();
+    setRestoreBusy(false);
+    if (failed) {
+      setRestoreError(`${failed} delar kunde inte sparas. Det som redan sparats finns kvar, försök igen så läggs resten till.`);
+      return;
+    }
+    setRestorePlan(null);
+    setImportMsg({ ok: true, text: added === 0 ? "Återställning klar: inget saknades." : `Återställning klar: ${added} pass lades till.` });
   }
 
   function parseCsv(text) {
@@ -2962,6 +3133,14 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                      if (file) handleImportFile(file);
                      e.target.value = "";
                    }} />
+            {isAdmin && (
+              <input ref={restoreRef} type="file" accept=".json,application/json" className="hidden" aria-label="Återställ" data-testid="restore-input"
+                     onChange={(e) => {
+                       const file = e.target.files && e.target.files[0];
+                       if (file) handleRestoreFile(file);
+                       e.target.value = "";
+                     }} />
+            )}
             {showMenu && (
               <>
                 <div className="fixed inset-0 z-30" data-testid="person-menu-backdrop" onClick={() => setShowMenu(false)} />
@@ -3005,14 +3184,33 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                           onClick={() => { setShowMenu(false); importRef.current && importRef.current.click(); }}
                           title="Importera pass från en tidigare CSV-export (t.ex. efter en uppdatering)"
                           className="w-full flex items-center gap-3 px-4 text-sm text-left" style={{ minHeight: 44, color: INK }}>
-                    <Upload size={16} style={{ color: MUTED }} /> Importera
+                    <Upload size={16} style={{ color: MUTED }} /> Importera (CSV)
                   </button>
                   <button type="button" role="menuitem" data-testid="menu-export" disabled={exporting}
                           onClick={() => { setShowMenu(false); handleExport(); }}
                           title="Ladda ner alla loggade pass som CSV-fil (säkerhetskopia)"
                           className="w-full flex items-center gap-3 px-4 text-sm text-left" style={{ minHeight: 44, color: INK }}>
-                    <Download size={16} style={{ color: MUTED }} /> Exportera
+                    <Download size={16} style={{ color: MUTED }} /> Exportera (CSV)
                   </button>
+                  {isAdmin && (
+                    <>
+                      <div className="border-t my-1" style={{ borderColor: LINE }} />
+                      <div className="px-4 pt-2 pb-1 text-xs font-bold" style={{ color: MUTED }}>SÄKERHETSKOPIA</div>
+                      <button type="button" role="menuitem" data-testid="menu-backup" disabled={backingUp}
+                              onClick={() => { setShowMenu(false); handleBackup(); }}
+                              className="w-full flex items-center gap-3 px-4 text-sm text-left" style={{ minHeight: 44, color: INK }}>
+                        <Download size={16} style={{ color: MUTED }} /> Säkerhetskopia (JSON)
+                      </button>
+                      <button type="button" role="menuitem" data-testid="menu-restore"
+                              onClick={() => { setShowMenu(false); restoreRef.current && restoreRef.current.click(); }}
+                              className="w-full flex items-center gap-3 px-4 text-sm text-left" style={{ minHeight: 44, color: INK }}>
+                        <Upload size={16} style={{ color: MUTED }} /> Återställ från säkerhetskopia
+                      </button>
+                      <div className="px-4 pb-2 text-xs" data-testid="backup-status" style={{ color: backupOverdue ? DANGER : MUTED }}>
+                        {!backupInfo.loaded ? "…" : backupInfo.at ? `Senaste: ${agoText(backupInfo.at)}` : "Ingen säkerhetskopia tagen än"}
+                      </div>
+                    </>
+                  )}
                   {connLink && (
                     <>
                       <div className="border-t my-1" style={{ borderColor: LINE }} />
@@ -3635,6 +3833,11 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                           : "Datan finns kvar i molnet."}
                         confirmLabel="Koppla bort" busy={false} error={null} onConfirm={doConfirm} onCancel={closeConfirm} />
         )}
+        {restorePlan && (
+          <ConfirmModal neutral title="Återställ från säkerhetskopia?"
+                        text={`${restorePlan.data.createdAt ? `Kopia från ${restorePlan.data.createdAt.slice(0, 10)}: ` : ""}${restorePlan.counts.total} pass och ${restorePlan.counts.users} personer. ${restorePlan.counts.exist} finns redan, ${restorePlan.counts.toAdd} läggs till${restorePlan.counts.newUsers ? `, och ${restorePlan.counts.newUsers === 1 ? "1 person saknas och läggs" : `${restorePlan.counts.newUsers} personer saknas och läggs`} till` : ""}. Inget skrivs över och inget raderas.${restorePlan.counts.skipped ? ` ${restorePlan.counts.skipped} poster i filen var trasiga och hoppas över.` : ""}`}
+                        confirmLabel="Återställ" busy={restoreBusy} error={restoreError} onConfirm={doRestore} onCancel={() => { if (!restoreBusy) setRestorePlan(null); }} />
+        )}
         {showUsers && (
           <UserManager users={users} localHidden={localHidden} onLocalHide={setLocalHiddenIds} onUpdate={updateUsers} onClose={() => setShowUsers(false)} />
         )}
@@ -3643,6 +3846,14 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
           Live-delad med alla som har samma länk.
           {protection && (<><br /><span data-testid="protection">Skydd mot överskrivning: {protection === "on" ? "på" : "begränsat"}</span></>)}
         </p>
+        {backupOverdue && (
+          <p className="text-xs text-center mt-3" data-testid="backup-reminder" style={{ color: MUTED }}>
+            {backupInfo.at ? `Senaste säkerhetskopia: ${agoText(backupInfo.at)}.` : "Ingen säkerhetskopia är tagen än."}{" "}
+            <button type="button" data-testid="backup-now" onClick={handleBackup} disabled={backingUp} className="underline font-semibold" style={{ color: ACCENT_DARK }}>
+              Ta en kopia nu
+            </button>
+          </p>
+        )}
 
         {connLink && (
           <div className="text-center" style={{ marginTop: 24 }}>
