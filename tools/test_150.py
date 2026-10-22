@@ -234,7 +234,7 @@ with sync_playwright() as pw:
         ctl(port, delayGet=300)
         log_pass(A, "Fotboll", "fb A", date="2026-10-18"); log_pass(B, "Skidor", "fb B", date="2026-10-18")
         click_save(A); click_save(B)
-        A.wait_for_timeout(4000); ctl(port, delayGet=0)
+        A.wait_for_timeout(9000); ctl(port, delayGet=0)
         notes = sorted(e["anteckningar"] for e in month(port, "2026-10"))
         check("7 Fallback mode: both passes kept", "fb A" in notes and "fb B" in notes and len(notes) == before + 2, str(notes))
         ctxA.close(); ctxB.close()

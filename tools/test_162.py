@@ -27,10 +27,10 @@ with sync_playwright() as pw:
         for a in ("Handboll", "Yoga", "Pilates"): P.locator("[data-testid=sport-group] button[aria-pressed]", has_text=re.compile(f"^{a}$")).click()
         P.locator("[data-testid=typ-group] button[aria-pressed]", has_text=re.compile("^Stretching$")).click()
         P.fill("input[inputmode=numeric]", "40"); set_effort(P, 3)
-        P.fill("input[type=date]", f"{M}-05")
+        P.fill("input[type=date]", TODAY.isoformat())
         P.locator("button.flex-1", has_text=re.compile("^Spara")).first.click(); P.wait_for_timeout(1500)
         raw = json.loads(json.load(urllib.request.urlopen(f"http://localhost:{port}/__raw?path=diaries/{CODE}/entries:{M}")))
-        mine = [e for e in raw if e.get("date") == f"{M}-05" and e.get("user") == "niva" and "H" in (e.get("sport") or [])]
+        mine = [e for e in raw if e.get("date") == TODAY.isoformat() and e.get("user") == "niva" and "H" in (e.get("sport") or [])]
         check("2 Saved with codes H, YO, PL and SR", len(mine) == 1 and sorted(mine[0]["sport"]) == ["H", "PL", "YO"] and mine[0]["typ"] == ["SR"], str(mine))
         row = P.locator("[data-testid=pass-row]", has_text="05/10") if False else P.locator("[data-testid=pass-row]").filter(has_text=re.compile(r"H\b.*YO.*PL"))
         check("2 The pass shows in the list", row.count() >= 1)

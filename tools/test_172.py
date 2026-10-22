@@ -57,10 +57,12 @@ with sync_playwright() as pw:
         e = [x for x in raw_entries(port) if x["date"] == f"{M}-27" and x["user"] == "niva" and x.get("tid") == "30"]
         check("5 Editing the effort saves (9)", len(e) == 1 and e[0]["kansla"] == "9", str(e))
         # old seeded pass opens with its effort
+        tab(P, "Historik"); P.wait_for_timeout(700)   # since 1.8.1 older passes are opened from Historik (edit panel)
         r = P.locator("[data-testid=pass-row]").filter(has_text=re.compile(rf"^\s*10/{M[5:]}")); r.locator("div").first.click(); P.wait_for_timeout(200)
-        r.locator("button[title='Redigera']").first.click(); P.wait_for_timeout(400)
+        r.locator("button[title='Redigera']").first.click(); P.wait_for_timeout(500)
         check("5 An old seeded pass loads its effort", val(P) != "–", val(P))
-        P.locator("[data-testid=clear-form]").click(); P.wait_for_timeout(200)
+        P.locator("[data-testid=clear-form]").click(); P.wait_for_timeout(400)
+        tab(P, "Logga pass"); P.wait_for_timeout(300)
         # rest day hides effort
         P.locator("[data-testid=kind-rest]").click()
         check("6 Rest day has no effort slider", P.locator("[data-testid=effort-slider]").count() == 0)

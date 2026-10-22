@@ -3,12 +3,16 @@ import {
   ComposedChart, BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun, History, Search, SlidersHorizontal } from "lucide-react";
+import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, ChevronRight, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun, History, Search, SlidersHorizontal } from "lucide-react";
 
-export const APP_VERSION = "1.8.0";
+export const APP_VERSION = "1.8.1";
 export const APP_DATE = "2026-10-22";
 
 const CHANGELOG = [
+  { version: "1.8.1", date: "2026-10-22", items: [
+    "Logga pass visar nu bara de 5 senaste passen (utan vilo- och sjukdagar), även över månadsskifte",
+    "Under listan finns länken Historik som öppnar fliken för samma person",
+    "Månadsväljaren och knappen för vilo-/sjukdagar finns kvar i Historik" ] },
   { version: "1.8.0", date: "2026-10-22", items: [
     "Statistik jämför nu med förra perioden: en liten pil och procent i varje ruta (Vecka och Månad)",
     "En pågående vecka eller månad jämförs med samma dagar förra gången, en avslutad med hela förra perioden",
@@ -2004,9 +2008,9 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     })();
     return () => { dead = true; };
   }, [view, histSearching, allMonths, liveTick]);
-  // This and last month, for the persistent-pain hint in Statistik (independent of the chosen period)
+  // This and last month: the persistent-pain hint in Statistik and the "Senaste pass" list on Logga pass (independent of the chosen period)
   useEffect(() => {
-    if (view !== "stats") return undefined;
+    if (view !== "stats" && view !== "logga") return undefined;
     let dead = false;
     (async () => {
       const now = monthKeyOf(todayISO());
@@ -2865,12 +2869,16 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const histFiltering = histFilters.pain || !!histFilters.sport || !!histFilters.typ || !!histFilters.part;
   const toggleWeek = (monday) => setHistCollapsed((prev) => { const n = new Set(prev); if (n.has(monday)) n.delete(monday); else n.add(monday); return n; });
 
-  const sortedMonthEntries = useMemo(
-    () => monthEntries
-      .filter((e) => (e.user || "niva") === form.user && !queuedIds.has(e.id))
-      .sort((a, b) => b.date.localeCompare(a.date)),
-    [monthEntries, form.user, queuedIds]
+  // Logga pass shows only the 5 latest real passes (no rest/sick days), across the month boundary. Everything else is in Historik.
+  const RECENT_LIMIT = 5;
+  const recentPasses = useMemo(
+    () => recentData.data
+      .filter((e) => (e.user || "niva") === form.user && !queuedIds.has(e.id) && isRealPass(e))
+      .sort((a, b) => b.date.localeCompare(a.date) || String(b.id).localeCompare(String(a.id)))
+      .slice(0, RECENT_LIMIT),
+    [recentData, form.user, queuedIds]
   );
+  const openHistoryFromLog = () => { setHistMonth(monthKeyOf(todayISO())); setSwipeDir(""); setView("hist"); };
 
   const painTrendCard = (
     <PainTrendCard entries={statsBase} loadMap={painLoadMap} scope={statsScope} week={statsWeek} month={selectedMonth}
@@ -2885,9 +2893,6 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     </Card>
   );
 
-  // Rest/sick days can be hidden in the list (only the list: statistics are not affected). Queued ones stay visible.
-  const offDaysInList = sortedMonthEntries.filter(isOffDay).length;
-  const listEntries = hideOffDays ? sortedMonthEntries.filter((e) => !isOffDay(e)) : sortedMonthEntries;
 
   const painOk = form.pain.every(painRowOk);
   const canSave = form.date && (isOff || form.sport.length > 0) && painOk && !saving;
@@ -3486,33 +3491,9 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
             </Card>
 
             <div>
-              <div className="text-xs font-bold mb-2" style={{ color: MUTED }}>
-                LOGGADE PASS · {userName(form.user)} ·{" "}
-                <span className="relative inline-block">
-                  {monthLabel(selectedMonth)}
-                  <ChevronDown size={14} style={{ display: "inline", verticalAlign: "-2px", marginLeft: 2 }} />
-                  <select
-                    aria-label="Välj månad"
-                    value={selectedMonth}
-                    onChange={(e) => setSelectedMonth(e.target.value)}
-                    className="absolute inset-0 w-full h-full cursor-pointer"
-                    style={{ opacity: 0 }}
-                  >
-                    {[...new Set([...allMonths, selectedMonth])].sort().reverse().map((m) => (
-                      <option key={m} value={m}>{monthLabel(m)}</option>
-                    ))}
-                  </select>
-                </span>
+              <div className="text-xs font-bold mb-2" style={{ color: MUTED }} data-testid="recent-title">
+                SENASTE PASS · {userName(form.user)}
               </div>
-              {offDaysInList > 0 && (
-                <button type="button" onClick={toggleHideOffDays} data-testid="toggle-offdays" aria-pressed={hideOffDays}
-                        title={hideOffDays ? "Visa vilo- och sjukdagar" : "Dölj vilo- och sjukdagar"}
-                        className="mb-2 flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold border bg-transparent"
-                        style={{ borderColor: LINE2, color: hideOffDays ? FAINT : MUTED }}>
-                  {hideOffDays ? <EyeOff size={14} /> : <Eye size={14} />}
-                  Vilo-/sjukdagar ({offDaysInList})
-                </button>
-              )}
               {queued.length > 0 && (
                 <div className="space-y-2 mb-3">
                   {queued.map((a) => (
@@ -3553,19 +3534,20 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                   ))}
                 </div>
               )}
-              {loadingMonth ? (
+              {recentData.key === null ? (
                 <p className="text-sm" style={{ color: MUTED }}>Laddar…</p>
-              ) : listEntries.length === 0 ? (
-                <p className="text-sm" style={{ color: MUTED }} data-testid="empty-list">
-                  {sortedMonthEntries.length === 0
-                    ? "Inga pass loggade den här månaden ännu."
-                    : `Inga pass den här månaden. ${offDaysInList === 1 ? "1 vilo-/sjukdag är dold" : `${offDaysInList} vilo-/sjukdagar är dolda`}.`}
-                </p>
+              ) : recentPasses.length === 0 ? (
+                <p className="text-sm" style={{ color: MUTED }} data-testid="empty-list">Inga pass de senaste två månaderna.</p>
               ) : (
-                <div className="space-y-2">
-                  {listEntries.map((e) => renderEntryRow(e, "log"))}
+                <div className="space-y-2" data-testid="recent-list">
+                  {recentPasses.map((e) => renderEntryRow(e, "log"))}
                 </div>
               )}
+              <button type="button" data-testid="to-history" onClick={openHistoryFromLog}
+                      className="mt-2 inline-flex items-center gap-1 text-sm font-semibold underline"
+                      style={{ minHeight: 44, color: ACCENT_DARK }}>
+                Historik <ChevronRight size={16} aria-hidden="true" />
+              </button>
             </div>
           </div>
         )}

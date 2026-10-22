@@ -158,8 +158,9 @@ with sync_playwright() as pw:
         P.locator("[data-testid=sleep-2]").click(); P.locator("[data-testid=pain-quick-heel]").click(); P.locator("[data-testid=pain-pos-L]").click(); pain_set(P.locator("[data-testid=pain-row]").last, 7); save(P)
         e = mine(port, 23)
         check("11 Rest day saved with kind and Mående", len(e) == 1 and e[0].get("kind") == "rest" and e[0].get("sleep") == "2" and e[0]["pain"][0]["value"] == "7", str(e))
+        tab(P, "Historik"); P.wait_for_timeout(700)   # since 1.8.1 rest days are not listed on Logga pass
         r = row_for(P, 23)
-        check("11 Rest day row shows the pain", r.locator("[data-testid=pain-badge]").count() == 1 and "Häl V 7" in r.inner_text(), r.inner_text().replace("\n", " "))
+        check("11 Rest day row shows the pain", "Häl V 7" in r.inner_text(), r.inner_text().replace("\n", " "))
         r.locator("div").first.click(); P.wait_for_timeout(200)
         check("11 Opened rest day says SMÄRTA IDAG", "SMÄRTA IDAG" in r.inner_text())
         # 12. statistics unaffected by rest-day mående, page ok

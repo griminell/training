@@ -96,7 +96,7 @@ with sync_playwright() as pw:
         dot = P.evaluate("getComputedStyle(document.querySelector('[data-testid=person-chip] span')).backgroundColor")
         css = P.evaluate("getComputedStyle(document.querySelector('[data-testid=clear-form]')).borderTopColor")
         check("4 Switching to Grim: menu closes, chip says Grim in Grim's colour, whole page changes colour", menu(P).count() == 0 and chip(P).inner_text().strip() == "Grim" and dot == "rgb(0, 75, 38)" and css == "rgb(0, 75, 38)", f"{dot} {css}")
-        check("4 The list shows Grim's passes", "LOGGADE PASS · Grim" in P.locator("body").inner_text() and P.locator("[data-testid=pass-row]", has_text="30 min").count() == 1 and P.locator("[data-testid=pass-row]", has_text="60 min").count() == 0)
+        check("4 The list shows Grim's passes", "SENASTE PASS · Grim" in P.locator("body").inner_text() and P.locator("[data-testid=pass-row]", has_text="30 min").count() == 1 and P.locator("[data-testid=pass-row]", has_text="60 min").count() == 0)
         check("4 The choice is remembered on the device", P.evaluate("localStorage.getItem('nivadagbok-me')") == "grim")
         P.screenshot(path=str(SHOTS / "4_grim.png"), full_page=True)
         # a pass saved now belongs to Grim

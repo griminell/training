@@ -212,6 +212,7 @@ with sync_playwright() as pw:
                 P.locator("[data-testid=pass-row]").first.click(); P.wait_for_timeout(250)
                 audit(P, f"{tag} lista (öppnat pass, vilodagar)", dark)
                 if dark:
+                    tab(P, "Historik"); P.wait_for_timeout(700)   # since 1.8.1 rest/sick rows are no longer on Logga pass
                     rows = P.locator("[data-testid=offday-row]")
                     bgs = P.evaluate("[...document.querySelectorAll('[data-testid=offday-row]')].map(e => getComputedStyle(e).backgroundColor)")
                     check(f"4 {tag}: rest/sick rows are dark and differ from normal rows", rows.count() >= 1 and all(re.match(r"rgb\((\d+), ", b) and int(re.match(r"rgb\((\d+), ", b).group(1)) < 40 for b in bgs), str(bgs))

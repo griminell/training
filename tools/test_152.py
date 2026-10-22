@@ -138,8 +138,10 @@ with sync_playwright() as pw:
         save_btn(P).click(); P.wait_for_timeout(1500)
         got = [e for e in month_raw(port) if e["date"] == day(12)]
         check("3 Rest day stored with kind=rest and empty pass fields", len(got) == 1 and got[0].get("kind") == "rest" and got[0]["sport"] == [] and got[0]["typ"] == [] and got[0]["tid"] == "" and got[0]["kansla"] == "" and got[0]["anteckningar"] == "lugn dag", str(got))
+        P.get_by_role("button", name="Historik").first.click(); P.wait_for_timeout(700)   # since 1.8.1 rest/sick days are no longer listed on Logga pass
         row = rows(P, "offday-row").filter(has_text="lugn dag").first
         check("3 Rest day shown as its own row (Vilodag, no time/effort)", row.count() == 1 and "Vilodag" in row.inner_text() and " min" not in row.inner_text() and row.locator("[data-testid=effort]").count() == 0, row.inner_text() if row.count() else "")
+        P.get_by_role("button", name="Logga pass").first.click(); P.wait_for_timeout(300)
         check("3 Form returns to Pass after saving", pressed(P, "pass"))
         P.screenshot(path=str(SHOTS / "3_lista_med_vila.png"), full_page=True)
 
@@ -201,6 +203,7 @@ with sync_playwright() as pw:
         check("6 Niva 'Samma som senast' = latest real pass (Pass on day 12, not the rest days)", "20 min" in txt and "Skidor" not in txt and "Aktivitet" not in txt, txt)
 
         # ---- 7. Edit ----
+        N.get_by_role("button", name="Historik").first.click(); N.wait_for_timeout(800)   # since 1.8.1 older rows are edited from Historik (panel)
         row = rows(N, "offday-row").filter(has_text="lugn dag").first
         row.locator("button[title=Redigera]").click(); N.wait_for_timeout(400)
         check("7 Editing a rest day opens the form with Vilodag selected, notes filled", pressed(N, "rest") and N.input_value("textarea") == "lugn dag" and save_btn(N).inner_text().strip() == "Spara ändringar")
@@ -225,6 +228,7 @@ with sync_playwright() as pw:
         check("8 Sick day deleted", not [e for e in month_raw(port) if e["anteckningar"] == "lugn dag, redigerad"])
 
         # ---- 9. Offline: a rest day is queued as Ej sparat and sent later ----
+        N.get_by_role("button", name="Logga pass").first.click(); N.wait_for_timeout(500)
         ctl(port, offline=1)
         set_kind(N, "rest"); N.fill("input[type=date]", day(22)); N.fill("textarea", "offline vila"); save_btn(N).click(); N.wait_for_timeout(2500)
         card = N.locator("[data-testid=pending-card]")

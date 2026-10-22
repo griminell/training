@@ -46,6 +46,7 @@ with sync_playwright() as pw:
         check("1 Old passes have no `distance` field and are untouched", all("distance" not in e for e in raw if e["id"].startswith("n")))
         check("1 Form is emptied after saving (distance too)", P.locator("[data-testid=distance-input]").input_value() == "")
         # ---- 2. List ----
+        tab(P, "Historik"); P.wait_for_timeout(700)   # since 1.8.1 Logga pass lists only the 5 latest passes; the full month is in Historik
         r10 = row_for(P, 29)
         check("2 List row shows ' · 5,2 km' after the time", "30 min" in r10.inner_text() and "5,2 km" in r10.inner_text(), r10.inner_text().replace("\n", " "))
         r1 = row_for(P, 1)
@@ -65,15 +66,16 @@ with sync_playwright() as pw:
         check("3 Skidor with distance: no pace", pace(25) is None)
         check("3 Two activities (Löpning + Promenad): no pace", pace(26) is None)
         check("3 Löpning without distance: no pace", pace(27) is None)
+        tab(P, "Logga pass"); P.wait_for_timeout(500)
         # rest day never has distance
         P.locator("[data-testid=kind-rest]").click(); P.fill("input[type=date]", f"{M}-12"); P.fill("textarea", "vila")
         check("3 Rest/sick form has no distance field", P.locator("[data-testid=distance-input]").count() == 0)
         P.locator("[data-testid=kind-pass]").click()
         # ---- 4. Edit loads the distance; Rensa clears it; Samma som senast does not copy it ----
-        row_for(P, 22).locator("button[title=Redigera]").click(); P.wait_for_timeout(300)
-        check("4 Editing loads the distance into the field", P.locator("[data-testid=distance-input]").input_value() == "5")
+        row_for(P, 28).locator("button[title=Redigera]").click(); P.wait_for_timeout(300)   # day 28 is among the 5 latest passes on Logga pass
+        check("4 Editing loads the distance into the field", P.locator("[data-testid=distance-input]").input_value() in ("7.5", "7,5"), P.locator("[data-testid=distance-input]").input_value())
         P.locator("[data-testid=clear-form]").click(); P.wait_for_timeout(200)
-        check("4 'Avbryt' while editing leaves the saved pass as it was", [e for e in json.loads(json.load(urllib.request.urlopen(f"http://localhost:{port}/__raw?path=diaries/{CODE}/entries:{M}"))) if e["id"] == "d1"][0]["distance"] == "5")
+        check("4 'Avbryt' while editing leaves the saved pass as it was", [e for e in json.loads(json.load(urllib.request.urlopen(f"http://localhost:{port}/__raw?path=diaries/{CODE}/entries:{M}"))) if e["id"] == "d7"][0]["distance"] == "7.5")
         P.locator("[data-testid=distance-input]").fill("3"); 
         P.locator("[data-testid=clear-form]").click(); P.wait_for_timeout(200)
         check("4 Rensa empties the distance", P.locator("[data-testid=distance-input]").input_value() == "")

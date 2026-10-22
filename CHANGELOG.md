@@ -1,5 +1,11 @@
 # Changelog / Ändringslogg
 
+## 1.8.1 – 2026-10-22
+
+- Logga pass visar de 5 senaste passen (utan vilo- och sjukdagar), även över månadsskifte. Rubriken heter Senaste pass
+- Länken Historik under listan öppnar Historik för samma person
+- Månadsväljaren och knappen för vilo-/sjukdagar finns kvar i Historik
+
 ## 1.8.0 – 2026-10-22
 
 - Jämförelse mot förra perioden i Statistik (Vecka och Månad): liten pil och procent i varje ruta, utan färg och utan tolkning
