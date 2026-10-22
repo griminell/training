@@ -1,5 +1,11 @@
 # Changelog / Ändringslogg
 
+## 1.7.9 – 2026-10-22
+
+- Schemaversion: datan märks med ett versionsnummer (nyckeln meta:schema), så att en gammal kopia av appen aldrig kan skriva över data den inte förstår
+- Är datan nyare än appen visas en notis med Uppdatera sidan, och all sparning stängs av tills sidan uppdaterats
+- Säkerhetskopian får också ett versionsnummer. En kopia från en nyare app återställs inte. Äldre kopior utan nummer räknas som version 1
+
 ## 1.7.8 – 2026-10-22
 
 - Säkerhetskopia: administratören kan ta en kopia av allt (alla pass, alla personer) som en fil, och återställa från den. Återställningen lägger bara till pass som saknas, den skriver aldrig över eller raderar något

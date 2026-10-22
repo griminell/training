@@ -5,10 +5,14 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun, History, Search, SlidersHorizontal } from "lucide-react";
 
-export const APP_VERSION = "1.7.8";
-export const APP_DATE = "2026-10-21";
+export const APP_VERSION = "1.7.9";
+export const APP_DATE = "2026-10-22";
 
 const CHANGELOG = [
+  { version: "1.7.9", date: "2026-10-22", items: [
+    "Datan märks nu med ett versionsnummer, så att en gammal kopia av appen aldrig kan skriva över data den inte förstår",
+    "Om datan är nyare än appen visas en notis med knappen Uppdatera sidan, och sparning stängs av tills du uppdaterat",
+    "Säkerhetskopian märks också med versionsnummer och en kopia från en nyare app återställs inte av misstag" ] },
   { version: "1.7.8", date: "2026-10-22", items: [
     "Säkerhetskopia: administratören kan ta en kopia av allt (alla pass, alla personer) som en fil, och återställa från den. Återställningen lägger bara till pass som saknas, den skriver aldrig över eller raderar något",
     "Administratör slås på per person i Hantera användare (Redigera). Det gäller på alla enheter där den personen är vald. Övriga ser varken säkerhetskopia, återställning eller påminnelse",
@@ -581,7 +585,14 @@ async function safeGet(key) {
 // ---------------------------------------------------------------------------------------------
 const MAX_TRIES = 5;
 const NO_CHANGE = { noChange: true };
+// Data schema version. The shared key "meta:schema" = { version, appVersion, at } says which version of the
+// app wrote the data last. It is a separate key on purpose: the month lists stay plain arrays, so older
+// copies of the app keep working. If the stored version is NEWER than this app understands, all writes are
+// blocked (schemaLocked) so an old copy can never damage data it does not understand.
+const DATA_SCHEMA = 1;
+let schemaLocked = false;
 async function saveKey(key, mutate, parse, empty, opts = {}) {
+  if (schemaLocked && !opts.ignoreLock) return { status: "error", message: "schema" };
   for (let i = 0; i < MAX_TRIES; i++) {
     let cur;
     try { cur = await window.storage.getV(key); } catch (e) { return { status: "offline" }; }
@@ -1048,14 +1059,16 @@ async function findLastEntry(userId, monthsDesc, queuedList) {
 // Confirmation dialog in the app's style (replaces the browser's confirm()).
 // ---- Backup (JSON): everything in one file. Never contains the database address or the share code. ----
 const BACKUP_FORMAT = 1;
+const BACKUP_NEWER = "Säkerhetskopian är gjord med en nyare version av appen. Tryck Uppdatera sidan och försök igen.";
 const BACKUP_DAYS = 28; // reminder after this many days without a backup
 const entrySig = (e) => [e.date, e.user, (e.sport || []).join(","), (e.typ || []).join(","), e.tid, e.distance || "", e.kansla, e.anteckningar, e.kind || "", e.sleep || "", e.energy || "", JSON.stringify(e.pain || [])].join("|");
 function buildBackup(usersList, monthsMap) {
-  return { app: "traningsdagbok", format: BACKUP_FORMAT, createdAt: new Date().toISOString(), appVersion: APP_VERSION, users: usersList, months: monthsMap };
+  return { app: "traningsdagbok", format: BACKUP_FORMAT, schema: DATA_SCHEMA, createdAt: new Date().toISOString(), appVersion: APP_VERSION, users: usersList, months: monthsMap };
 }
 // Checks a parsed file and returns { users, months } with only valid data, or { error }.
 function readBackup(obj) {
   if (!obj || typeof obj !== "object" || obj.app !== "traningsdagbok" || obj.format !== BACKUP_FORMAT) return { error: "Det här är ingen säkerhetskopia från Träningsdagboken." };
+  if (typeof obj.schema === "number" && obj.schema > DATA_SCHEMA) return { error: BACKUP_NEWER }; // a file without "schema" is version 1
   if (!obj.months || typeof obj.months !== "object" || Array.isArray(obj.months) || !Array.isArray(obj.users)) return { error: "Säkerhetskopian är trasig eller ofullständig." };
   const months = {};
   let skipped = 0;
@@ -1738,6 +1751,21 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     })();
     return () => { dead = true; };
   }, [isAdmin, liveTick]);
+  // Schema check: write the version once if it is missing, and lock writes if the data is newer than this app.
+  const [schemaTooNew, setSchemaTooNew] = useState(false);
+  useEffect(() => {
+    if (!usersLoaded) return undefined;
+    let dead = false;
+    (async () => {
+      const r = await safeGetResult("meta:schema");
+      if (dead || !r.ok) return;
+      const v = r.data && typeof r.data.version === "number" ? r.data.version : null;
+      if (v !== null && v > DATA_SCHEMA) { schemaLocked = true; setSchemaTooNew(true); return; }
+      schemaLocked = false; setSchemaTooNew(false);
+      if (v === null) await saveKey("meta:schema", (cur) => (cur && typeof cur.version === "number" ? NO_CHANGE : { version: DATA_SCHEMA, appVersion: APP_VERSION, at: new Date().toISOString() }), (x) => x, null, { ignoreLock: true });
+    })();
+    return () => { dead = true; };
+  }, [usersLoaded, liveTick]);
   const backupOverdue = isAdmin && backupInfo.loaded && (!backupInfo.at || Date.now() - Date.parse(backupInfo.at) > BACKUP_DAYS * 86400000);
 
   useEffect(() => {
@@ -3300,6 +3328,13 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
           </div>
         )}
 
+        {schemaTooNew && (
+          <div className="rounded-lg text-sm p-3 mb-3" data-testid="schema-warning" role="alert"
+               style={{ backgroundColor: WARN_BG, border: `1px solid ${WARN_BORDER}`, color: WARN_TEXT }}>
+            Datan är sparad med en nyare version av appen. Den här versionen kan inte spara, så inget skrivs över.{" "}
+            <button type="button" className="underline font-semibold" onClick={() => { location.replace(location.pathname + "?v=" + Date.now()); }}>Uppdatera sidan</button>
+          </div>
+        )}
         <div key={view} data-testid="view-wrap" data-dir={swipeDir || ""} className={swipeDir ? `swipe-in-${swipeDir}` : ""}>
         {view === "logga" && (
           <div className="space-y-5">
