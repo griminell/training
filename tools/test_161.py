@@ -30,13 +30,13 @@ with sync_playwright() as pw:
             check(f"{mode}: some air below the link (>= 24 px)", bot >= 24, str(bot))
             P.screenshot(path=str(SHOTS / f"footer_{mode}.png"))
             lnk.click(); P.wait_for_timeout(300)
-            check(f"{mode}: link opens Vad är nytt, which shows the version date", P.get_by_role("heading", name="Vad är nytt").count() == 1 and "Version 1.7.0" in P.locator("body").inner_text() and "2026-10-21" in P.locator("body").inner_text())
-            body = P.locator("[data-testid=cl-body-1\\.7]")
-            check(f"{mode}: newest group (1.7) is open and shows 1.7.0", P.locator("[data-testid=cl-toggle-1\\.7]").get_attribute("aria-expanded") == "true" and "Version 1.7.0" in body.inner_text())
-            older = ["1.6", "1.5", "1.4"]
+            check(f"{mode}: link opens Vad är nytt, which shows the version date", P.get_by_role("heading", name="Vad är nytt").count() == 1 and "Version 1.8.0" in P.locator("body").inner_text() and "2026-10-22" in P.locator("body").inner_text())
+            body = P.locator("[data-testid=cl-body-1\\.8]")
+            check(f"{mode}: newest group (1.8) is open and shows 1.8.0", P.locator("[data-testid=cl-toggle-1\\.8]").get_attribute("aria-expanded") == "true" and "Version 1.8.0" in body.inner_text())
+            older = ["1.7", "1.6", "1.5", "1.4"]
             check(f"{mode}: older groups are collapsed with their content hidden", all(P.locator(f"[data-testid=cl-toggle-{k.replace('.', chr(92)+'.')}]").count() == 1 and P.locator(f"[data-testid=cl-toggle-{k.replace('.', chr(92)+'.')}]").get_attribute("aria-expanded") == "false" and P.locator(f"[data-testid=cl-body-{k.replace('.', chr(92)+'.')}]").count() == 0 for k in older))
             t15 = P.locator("[data-testid=cl-toggle-1\\.5]"); t15.click(); P.wait_for_timeout(200)
-            check(f"{mode}: tapping a group opens it (1.5.6 .. 1.5.0) and keeps 1.7 open", "Version 1.5.6" in P.locator("[data-testid=cl-body-1\\.5]").inner_text() and "Version 1.5.0" in P.locator("[data-testid=cl-body-1\\.5]").inner_text() and P.locator("[data-testid=cl-body-1\\.7]").count() == 1)
+            check(f"{mode}: tapping a group opens it (1.5.6 .. 1.5.0) and keeps 1.8 open", "Version 1.5.6" in P.locator("[data-testid=cl-body-1\\.5]").inner_text() and "Version 1.5.0" in P.locator("[data-testid=cl-body-1\\.5]").inner_text() and P.locator("[data-testid=cl-body-1\\.8]").count() == 1)
             tb = t15.bounding_box()
             check(f"{mode}: group headers are >= 44 px high", tb["height"] >= 44, str(tb))
             P.screenshot(path=str(SHOTS / f"changelog_{mode}.png"))

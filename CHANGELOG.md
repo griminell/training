@@ -1,5 +1,15 @@
 # Changelog / Ändringslogg
 
+## 1.8.0 – 2026-10-22
+
+- Jämförelse mot förra perioden i Statistik (Vecka och Månad): liten pil och procent i varje ruta, utan färg och utan tolkning
+- En pågående vecka eller månad jämförs med samma dagar förra gången (mån–ons mot mån–ons), en avslutad med hela förra perioden. En textrad under periodväljaren säger vad som jämförs
+- Snittansträngning visar skillnaden i poäng. Distans jämförs bara när det finns distans att jämföra med
+- Förra veckans belastning per dag syns som tunna streck i diagrammet Belastning per dag (veckovyn)
+- Saknas pass i förra perioden visas ett streck i stället för procent
+- Denna månad och Denna vecka ligger centrerade under väljaren (Statistik och Historik)
+- Rättat: vid omladdning startade sidan i grönt tills användarlistan hämtats. Den senast kända listan sparas nu på enheten och färgerna är rätt från första bilden
+
 ## 1.7.9 – 2026-10-22
 
 - Schemaversion: datan märks med ett versionsnummer (nyckeln meta:schema), så att en gammal kopia av appen aldrig kan skriva över data den inte förstår

@@ -32,7 +32,7 @@ def scope(P, k): P.locator(f"[data-testid=scope-{k}]").click(); P.wait_for_timeo
 def cards(P):
     t = P.locator("body").inner_text(); return t
 def stat_value(P, label):
-    return P.evaluate("(l) => { const e = [...document.querySelectorAll('div.text-xs')].find(x => x.textContent.trim() === l); return e ? e.previousElementSibling.textContent.trim() : null }", label)
+    return P.evaluate("(l) => { const e = [...document.querySelectorAll('div.text-xs')].find(x => x.textContent.trim() === l); if (!e) return null; const p = e.previousElementSibling; const n = p.querySelector('div.font-bold'); return (n || p).textContent.trim() }", label)
 MN = ["Januari","Februari","Mars","April","Maj","Juni","Juli","Augusti","September","Oktober","November","December"]
 def wlabel(P): return re.sub(r"\s+", " ", P.locator("[data-testid=week-label]").inner_text()).strip()
 

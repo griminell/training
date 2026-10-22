@@ -172,7 +172,7 @@ with sync_playwright() as pw:
         # Niva now has: real passes day 1, 2, 3, 12 (20 min x3). rest: 4, 5, 12, 14 = 4 ; sick: 6 = 1
         go_stats(P); stat_user(P, "Niva")
         body = P.locator("body").inner_text()
-        check("5 Pass count excludes rest/sick days (4 passes)", re.search(r"\n4\nAntal pass", body) is not None, body[:300].replace("\n", "|"))
+        check("5 Pass count excludes rest/sick days (4 passes)", re.search(r"\n4\n(?:[^\n]*\n)?Antal pass", body) is not None, body[:300].replace("\n", "|"))
         hours = (60 + 30 + 120 + 20) / 60
         check("5 Hours exclude rest/sick (junk data on a rest day ignored)", f"{hours:.1f}" in body, f"{hours:.1f}")
         load = 60 * 5 + 30 * 6 + 120 * 10 + 20 * 3

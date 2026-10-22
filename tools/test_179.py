@@ -34,7 +34,7 @@ with sync_playwright() as pw:
         before = json.dumps(all_entries(port), sort_keys=True)
         ctx, P = open_app(browser, port, "niva", "light", "light"); P.wait_for_timeout(1200)
         s = schema_of(port)
-        check("1 Missing schema key is written once: version 1, app version, timestamp", bool(s) and s.get("version") == 1 and s.get("appVersion") == "1.7.9" and isinstance(s.get("at"), str), str(s))
+        check("1 Missing schema key is written once: version 1, app version, timestamp", bool(s) and s.get("version") == 1 and re.match(r"^\d+\.\d+\.\d+$", str(s.get("appVersion"))) and isinstance(s.get("at"), str), str(s))
         check("1 Existing passes are untouched by that", json.dumps(all_entries(port), sort_keys=True) == before)
         check("1 No warning", P.locator("[data-testid=schema-warning]").count() == 0)
         at1 = s["at"]

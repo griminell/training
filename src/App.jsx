@@ -5,10 +5,18 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun, History, Search, SlidersHorizontal } from "lucide-react";
 
-export const APP_VERSION = "1.7.9";
+export const APP_VERSION = "1.8.0";
 export const APP_DATE = "2026-10-22";
 
 const CHANGELOG = [
+  { version: "1.8.0", date: "2026-10-22", items: [
+    "Statistik jämför nu med förra perioden: en liten pil och procent i varje ruta (Vecka och Månad)",
+    "En pågående vecka eller månad jämförs med samma dagar förra gången, en avslutad med hela förra perioden",
+    "Snittansträngning visar skillnaden i poäng",
+    "Förra veckans belastning syns som tunna streck i diagrammet Belastning per dag",
+    "Inga färger och ingen tolkning: pilen visar bara riktningen",
+    "Denna månad och Denna vecka ligger centrerade under väljaren",
+    "Rättat: sidan startar inte längre i grönt innan din egen färg visas, den senast kända färgen används direkt vid omladdning" ] },
   { version: "1.7.9", date: "2026-10-22", items: [
     "Datan märks nu med ett versionsnummer, så att en gammal kopia av appen aldrig kan skriva över data den inte förstår",
     "Om datan är nyare än appen visas en notis med knappen Uppdatera sidan, och sparning stängs av tills du uppdaterat",
@@ -264,6 +272,17 @@ let ACCENT_DARK = THEMES.niva.dark;
 let ACCENT_SOFT = THEMES.niva.soft;
 let TYPE_PALETTE = THEMES.niva.types;
 let SPORT_COLORS = THEMES.niva.sports;
+// The last known user list is kept on the device so the person's colours are right from the very first paint
+// (otherwise the page starts in the default colours until the list has been fetched). Never used for writing.
+const USERS_CACHE_KEY = "nivadagbok-users-cache";
+function loadCachedUsers() {
+  try {
+    const l = JSON.parse(localStorage.getItem(USERS_CACHE_KEY));
+    if (Array.isArray(l) && l.length && l.every((u) => u && typeof u.id === "string" && typeof u.name === "string" && /^#[0-9a-fA-F]{6}$/.test(u.color || ""))) return l;
+  } catch (e) { /* no cache */ }
+  return DEFAULT_USERS;
+}
+function saveCachedUsers(list) { try { localStorage.setItem(USERS_CACHE_KEY, JSON.stringify(list)); } catch (e) { /* ignore */ } }
 const DEFAULT_USERS = [
   { id: "niva", name: "Niva", color: "#C2477A" },
   { id: "grim", name: "Grim", color: "#004B26" },
@@ -1056,6 +1075,43 @@ async function findLastEntry(userId, monthsDesc, queuedList) {
   return best;
 }
 
+// ---- Comparison with the previous period (Statistik, Vecka and Månad) ----
+// A running period is compared with the SAME days of the previous one (Mon-Wed against Mon-Wed), a finished
+// period with the whole previous one. Neutral on purpose: no colours, no "good/bad", no thresholds.
+function summarizeEntries(list) {
+  const withK = list.filter((e) => e.kansla);
+  return {
+    totalPass: list.length,
+    totalTidMin: list.reduce((a, e) => a + (parseFloat(e.tid) || 0), 0),
+    avgKansla: withK.length ? withK.reduce((a, e) => a + parseFloat(e.kansla), 0) / withK.length : 0,
+    totalLoad: list.reduce((a, e) => a + (parseFloat(e.tid) || 0) * (parseFloat(e.kansla) || 0), 0),
+    totalKm: list.reduce((a, e) => a + distNum(e), 0),
+  };
+}
+// Percent change as { dir: "up" | "down" | "flat", text } or null when it cannot be calculated (previous is 0).
+function pctDelta(cur, prev) {
+  if (!(prev > 0)) return null;
+  const r = (cur - prev) / prev;
+  if (Math.abs(r) < 0.01) return { dir: "flat", text: "" };
+  return { dir: r > 0 ? "up" : "down", text: `${Math.round(Math.abs(r) * 100)} %` };
+}
+// Average effort is a 1-10 scale, so the difference is shown in points, not percent.
+function pointDelta(cur, prev) {
+  if (!(cur > 0) || !(prev > 0)) return null;
+  const d = Math.round((cur - prev) * 10) / 10;
+  if (d === 0) return { dir: "flat", text: "" };
+  return { dir: d > 0 ? "up" : "down", text: Math.abs(d).toLocaleString("sv-SE", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) };
+}
+// The small muted arrow + number in a tile. No colour judgement.
+function Delta({ d, testid }) {
+  const label = !d ? "ingen jämförelse" : d.dir === "flat" ? "oförändrat" : `${d.dir === "up" ? "upp" : "ned"} ${d.text}`;
+  return (
+    <span className="text-xs font-semibold whitespace-nowrap" data-testid={testid} data-dir={d ? d.dir : "none"} aria-label={label} style={{ color: MUTED }}>
+      {!d || d.dir === "flat" ? "–" : `${d.dir === "up" ? "▲" : "▼"} ${d.text}`}
+    </span>
+  );
+}
+
 // Confirmation dialog in the app's style (replaces the browser's confirm()).
 // ---- Backup (JSON): everything in one file. Never contains the database address or the share code. ----
 const BACKUP_FORMAT = 1;
@@ -1674,7 +1730,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const [sheetVv, setSheetVv] = useState(null);
   const [swipeDir, setSwipeDir] = useState(""); // "l" | "r": which way the page slides in after a swipe (empty after a tab tap)
   const sheetStash = React.useRef(null);
-  const [users, setUsers] = useState(DEFAULT_USERS);
+  const [users, setUsers] = useState(loadCachedUsers); // last known list, so colours are right from the first paint
   const [usersLoaded, setUsersLoaded] = useState(false); // until the real list is read, a device's own person must not be judged against the default list
   const [showUsers, setShowUsers] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
@@ -1735,7 +1791,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       const res = await window.storage.get("meta:users", true);
       if (res && res.value) {
         const list = JSON.parse(res.value);
-        if (Array.isArray(list) && list.length) setUsers(list);
+        if (Array.isArray(list) && list.length) { setUsers(list); saveCachedUsers(list); }
       }
       setUsersLoaded(true);
     } catch (e) { /* behåll nuvarande lista */ }
@@ -1795,7 +1851,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     if (r.status === "abort") return { ok: false, error: r.message };
     if (r.status === "conflict") return { ok: false, error: "Någon annan ändrade samtidigt. Försök igen." };
     if (r.status !== "ok") return { ok: false, error: "Ingen kontakt med databasen. Försök igen." };
-    setUsers(r.value);
+    setUsers(r.value); saveCachedUsers(r.value);
     return { ok: true };
   }
 
@@ -1886,6 +1942,42 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     })();
     return () => { dead = true; };
   }, [statsScope, statsWeek, liveTick]);
+
+  // Previous period for the comparison (Vecka and Månad). cmp = what to load and how to describe it.
+  const cmp = useMemo(() => {
+    const today = todayISO();
+    if (statsScope === "week") {
+      const prevMonday = addDaysIso(statsWeek, -7);
+      const running = statsWeek === mondayOf(today);
+      const n = running ? Math.round((isoToDate(today) - isoToDate(statsWeek)) / MS_DAY) + 1 : 7;
+      const wd = (i) => WEEKDAY_SHORT[i].toLowerCase();
+      return { key: `w:${prevMonday}:${n}`, kind: "week", from: prevMonday, cut: addDaysIso(prevMonday, n - 1), months: [...new Set(Array.from({ length: 7 }, (_, i) => monthKeyOf(addDaysIso(prevMonday, i))))],
+        label: running ? `Jämfört med ${n > 1 ? `${wd(0)}–${wd(n - 1)}` : wd(0)} förra veckan` : `Jämfört med vecka ${isoWeekNumber(prevMonday)}`,
+        none: running ? "förra veckan" : `vecka ${isoWeekNumber(prevMonday)}` };
+    }
+    if (statsScope === "month") {
+      const pm = addMonthKey(selectedMonth, -1);
+      const running = selectedMonth === monthKeyOf(today);
+      const d = parseInt(today.slice(8), 10);
+      const name = MONTH_NAMES[parseInt(pm.slice(5), 10) - 1].toLowerCase();
+      return { key: `m:${pm}:${running ? d : 31}`, kind: "month", months: [pm], maxDay: running ? d : 31,
+        label: running ? `Jämfört med ${d > 1 ? `1–${d}` : "1"} ${name}` : `Jämfört med ${monthLabel(pm).toLowerCase()}`, none: monthLabel(pm).toLowerCase() };
+    }
+    return null;
+  }, [statsScope, statsWeek, selectedMonth]);
+  const [prevData, setPrevData] = useState({ key: "", data: [] });
+  useEffect(() => {
+    if (!cmp) return undefined;
+    let dead = false;
+    (async () => {
+      const results = await Promise.all(cmp.months.map((k) => safeGet(`entries:${k}`)));
+      if (dead) return;
+      const merged = [];
+      results.forEach((r) => { if (r) merged.push(...r); });
+      setPrevData({ key: cmp.key, data: merged });
+    })();
+    return () => { dead = true; };
+  }, [cmp, liveTick]);
 
   // Historik data: one month, or every month while a search is active. Reloads on live sync and after our own saves.
   const histSearching = histQuery.trim() !== "";
@@ -2702,6 +2794,40 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     const totalKm = dataForStats.reduce((s, e) => s + distNum(e), 0);
     return { totalPass, totalTidMin, avgKansla, totalLoad, totalKm };
   }, [dataForStats]);
+  // Previous period: the whole period (for the chart ticks) and the comparable slice (for the tiles).
+  const prevCmp = useMemo(() => {
+    if (!cmp || prevData.key !== cmp.key) return null;
+    const all = prevData.data.filter((e) => (e.user || "niva") === statsUserShown && isRealPass(e));
+    const inPeriod = cmp.kind === "week"
+      ? all.filter((e) => e.date >= cmp.from && e.date <= addDaysIso(cmp.from, 6))
+      : all;
+    const slice = cmp.kind === "week"
+      ? inPeriod.filter((e) => e.date <= cmp.cut)
+      : inPeriod.filter((e) => parseInt(e.date.slice(8), 10) <= cmp.maxDay);
+    const sum = summarizeEntries(slice);
+    return {
+      whole: inPeriod, sum, empty: slice.length === 0,
+      d: {
+        pass: pctDelta(summary.totalPass, sum.totalPass), tid: pctDelta(summary.totalTidMin, sum.totalTidMin),
+        load: pctDelta(summary.totalLoad, sum.totalLoad), km: pctDelta(summary.totalKm, sum.totalKm),
+        kansla: pointDelta(summary.avgKansla, sum.avgKansla),
+      },
+    };
+  }, [cmp, prevData, statsUserShown, summary]);
+
+  // Week chart: add last week's load per weekday (drawn as thin ticks over the bars).
+  const loadChart = useMemo(() => {
+    if (statsScope !== "week" || !prevCmp || !cmp || cmp.kind !== "week") return { data: loadByDate, ghost: false };
+    const pm = {};
+    prevCmp.whole.forEach((e) => { pm[e.date] = (pm[e.date] || 0) + (parseFloat(e.tid) || 0) * (parseFloat(e.kansla) || 0); });
+    let ghost = false;
+    const data = loadByDate.map((row, i) => {
+      const pv = Math.round(pm[addDaysIso(cmp.from, i)] || 0);
+      if (pv > 0) ghost = true;
+      return pv > 0 ? { ...row, prev: pv } : row;
+    });
+    return { data, ghost };
+  }, [statsScope, prevCmp, cmp, loadByDate]);
 
   // ---- Historik: what is shown ----
   const histScope = useMemo(() => (histSearching ? (histAllData || []) : (histMonthData.key === histMonth ? histMonthData.data : [])),
@@ -3490,7 +3616,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                     <span className="font-bold">{monthLabel(histMonth)}</span>
                   </PeriodStepper>
                   {histMonth !== nowKey && (
-                    <div className="text-right mt-1">
+                    <div className="text-center mt-1">
                       <button type="button" data-testid="hist-month-now" onClick={() => setHistMonth(nowKey)}
                               className="text-sm font-semibold underline px-1" style={{ minHeight: 44, color: ACCENT_DARK }}>
                         Denna månad
@@ -3655,7 +3781,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                     <span className="font-bold">{monthLabel(selectedMonth)}</span>
                   </PeriodStepper>
                   {selectedMonth !== nowKey && (
-                    <div className="text-right mt-1">
+                    <div className="text-center mt-1">
                       <button type="button" data-testid="month-now" onClick={() => setSelectedMonth(nowKey)}
                               className="text-sm font-semibold underline px-1" style={{ minHeight: 44, color: ACCENT_DARK }}>
                         Denna månad
@@ -3687,7 +3813,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                     <span className="font-bold">Vecka {wl.week}</span> <span style={{ color: MUTED }}>· {wl.range}</span>
                   </PeriodStepper>
                   {!isCurrent && (
-                    <div className="text-right mt-1">
+                    <div className="text-center mt-1">
                       <button type="button" data-testid="week-now" onClick={() => setStatsWeek(thisMonday)}
                               className="text-sm font-semibold underline px-1" style={{ minHeight: 44, color: ACCENT_DARK }}>
                         Denna vecka
@@ -3712,32 +3838,52 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
               </>
             ) : (
               <>
+                {prevCmp && (
+                  <p className="text-xs" data-testid="compare-label" style={{ color: MUTED }}>
+                    {prevCmp.empty ? `Ingen jämförelse: inga pass i ${cmp.none}.` : `${cmp.label}.`}
+                  </p>
+                )}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <Card>
-                    <div className="text-2xl font-bold" style={{ color: ACCENT_DARK }}>{summary.totalPass}</div>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <div className="text-2xl font-bold" style={{ color: ACCENT_DARK }}>{summary.totalPass}</div>
+                      {prevCmp && <Delta d={prevCmp.d.pass} testid="delta-pass" />}
+                    </div>
                     <div className="text-xs" style={{ color: MUTED }}>Antal pass</div>
                   </Card>
                   <Card>
-                    <div className="text-2xl font-bold" style={{ color: ACCENT_DARK }}>
-                      {(summary.totalTidMin / 60).toFixed(1)}
+                    <div className="flex items-baseline justify-between gap-2">
+                      <div className="text-2xl font-bold" style={{ color: ACCENT_DARK }}>
+                        {(summary.totalTidMin / 60).toFixed(1)}
+                      </div>
+                      {prevCmp && <Delta d={prevCmp.d.tid} testid="delta-tid" />}
                     </div>
                     <div className="text-xs" style={{ color: MUTED }}>Timmar totalt</div>
                   </Card>
                   <Card>
-                    <div className="text-2xl font-bold" style={{ color: ACCENT_DARK }}>
-                      {summary.avgKansla ? summary.avgKansla.toFixed(1) : "–"}
+                    <div className="flex items-baseline justify-between gap-2">
+                      <div className="text-2xl font-bold" style={{ color: ACCENT_DARK }}>
+                        {summary.avgKansla ? summary.avgKansla.toFixed(1) : "–"}
+                      </div>
+                      {prevCmp && <Delta d={prevCmp.d.kansla} testid="delta-kansla" />}
                     </div>
                     <div className="text-xs" style={{ color: MUTED }}>Snittansträngning</div>
                   </Card>
                   <Card>
-                    <div className="text-2xl font-bold" style={{ color: ACCENT_DARK }}>
-                      {Math.round(summary.totalLoad).toLocaleString("sv-SE")}
+                    <div className="flex items-baseline justify-between gap-2">
+                      <div className="text-2xl font-bold" style={{ color: ACCENT_DARK }}>
+                        {Math.round(summary.totalLoad).toLocaleString("sv-SE")}
+                      </div>
+                      {prevCmp && <Delta d={prevCmp.d.load} testid="delta-load" />}
                     </div>
                     <div className="text-xs" style={{ color: MUTED }}>Belastning (AU)</div>
                   </Card>
                   {summary.totalKm > 0 && (
                     <Card className="col-span-2">
-                      <div className="text-2xl font-bold" data-testid="distance-total" style={{ color: ACCENT_DARK }}>{fmtKm(summary.totalKm)}</div>
+                      <div className="flex items-baseline justify-between gap-2">
+                        <div className="text-2xl font-bold" data-testid="distance-total" style={{ color: ACCENT_DARK }}>{fmtKm(summary.totalKm)}</div>
+                        {prevCmp && <Delta d={prevCmp.d.km} testid="delta-km" />}
+                      </div>
                       <div className="text-xs" style={{ color: MUTED }}>Distans totalt (km)</div>
                     </Card>
                   )}
@@ -3749,14 +3895,24 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                   <div className="text-xs font-bold mb-3" style={{ color: ACCENT_DARK }}>
                     BELASTNING PER DAG &nbsp;<span className="font-normal" style={{ color: MUTED }}>(tid × ansträngning)</span>
                   </div>
+                  {loadChart.ghost && (
+                    <div className="text-xs mb-2 flex items-center gap-1.5" data-testid="load-ghost-legend" style={{ color: MUTED }}>
+                      <span className="inline-block" style={{ width: 14, height: 0, borderTop: `2px solid ${INK}` }} /> {cmp.kind === "week" ? `Vecka ${isoWeekNumber(cmp.from)}` : ""}
+                    </div>
+                  )}
                   <ResponsiveContainer width="100%" height={180}>
-                    <BarChart data={loadByDate} margin={CHART_MARGIN}>
+                    <ComposedChart data={loadChart.data} margin={CHART_MARGIN}>
                       <CartesianGrid strokeDasharray="3 3" stroke={GRIDC} vertical={false} />
                       <XAxis dataKey="date" tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: AXISC }} tickLine={false} />
                       <YAxis tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={40} />
                       <Tooltip {...tipProps()} />
                       <Bar dataKey="load" name="Belastning" fill={ACCENT} radius={[3, 3, 0, 0]} isAnimationActive={false} />
-                    </BarChart>
+                      {loadChart.ghost && (
+                        <Line dataKey="prev" name={`Vecka ${isoWeekNumber(cmp.from)}`} stroke="none" isAnimationActive={false} connectNulls={false} legendType="none"
+                              dot={(pr) => (pr.cx == null || pr.cy == null || pr.value == null ? <g key={pr.index} /> : <line key={pr.index} data-testid="load-ghost-tick" x1={pr.cx - 14} x2={pr.cx + 14} y1={pr.cy} y2={pr.cy} stroke={INK} strokeWidth={2.5} strokeLinecap="round" />)}
+                              activeDot={false} />
+                      )}
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </Card>
 
