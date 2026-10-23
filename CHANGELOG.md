@@ -1,5 +1,12 @@
 # Changelog / Ändringslogg
 
+## 1.8.2 – 2026-10-23
+
+- Påminn om igår: växel per person i Hantera användare (Redigera), avstängd som standard. Gäller på alla enheter där personen väljs
+- När den är på visas raden "Igår (torsdag) är inte loggad. Gör det nu." överst på Logga pass. Texten sätter datumet till igår, krysset döljer raden
+- Krysset döljer bara på den enheten för den dagen och sparar ingenting i databasen
+- Raden visas först efter 06.00 och försvinner när igår är loggad (pass, vilodag eller sjukdag, även ett pass som väntar på att sparas)
+
 ## 1.8.1 – 2026-10-22
 
 - Logga pass visar de 5 senaste passen (utan vilo- och sjukdagar), även över månadsskifte. Rubriken heter Senaste pass

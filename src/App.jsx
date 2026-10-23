@@ -5,10 +5,15 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, ChevronRight, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun, History, Search, SlidersHorizontal } from "lucide-react";
 
-export const APP_VERSION = "1.8.1";
-export const APP_DATE = "2026-10-22";
+export const APP_VERSION = "1.8.2";
+export const APP_DATE = "2026-10-23";
 
 const CHANGELOG = [
+  { version: "1.8.2", date: "2026-10-23", items: [
+    "Påminn om igår: en växel per person i Hantera användare (Redigera), avstängd som standard",
+    "Är den på visas raden Igår (torsdag) är inte loggad. Gör det nu. överst på Logga pass. Tryck på texten för att logga igår, eller på krysset för att dölja raden",
+    "Krysset döljer bara raden på den här enheten för den dagen och sparar ingenting",
+    "Raden visas först efter klockan 06.00 och försvinner när igår är loggad (pass, vilodag eller sjukdag)" ] },
   { version: "1.8.1", date: "2026-10-22", items: [
     "Logga pass visar nu bara de 5 senaste passen (utan vilo- och sjukdagar), även över månadsskifte",
     "Under listan finns länken Historik som öppnar fliken för samma person",
@@ -276,6 +281,15 @@ let ACCENT_DARK = THEMES.niva.dark;
 let ACCENT_SOFT = THEMES.niva.soft;
 let TYPE_PALETTE = THEMES.niva.types;
 let SPORT_COLORS = THEMES.niva.sports;
+// ---- "Igår saknas" (per person, off by default: user.remindYesterday) ----
+// The reminder row is hidden on this device per person and day with the cross (nothing is saved to the database).
+const WEEKDAY_LONG = ["måndag", "tisdag", "onsdag", "torsdag", "fredag", "lördag", "söndag"];
+const REMIND_FROM_HOUR = 6; // before 06:00 "igår" is not counted as missing yet (late evening passes are often logged after midnight)
+const SKIP_YESTERDAY_KEY = "nivadagbok-skip-yesterday"; // per device: { userId: "YYYY-MM-DD" }
+function loadSkipYesterday() {
+  try { const o = JSON.parse(localStorage.getItem(SKIP_YESTERDAY_KEY)); return o && typeof o === "object" && !Array.isArray(o) ? o : {}; } catch (e) { return {}; }
+}
+function saveSkipYesterday(o) { try { localStorage.setItem(SKIP_YESTERDAY_KEY, JSON.stringify(o)); } catch (e) { /* kept in memory only */ } }
 // The last known user list is kept on the device so the person's colours are right from the very first paint
 // (otherwise the page starts in the default colours until the list has been fetched). Never used for writing.
 const USERS_CACHE_KEY = "nivadagbok-users-cache";
@@ -1213,12 +1227,13 @@ function UserManager({ users, localHidden, onLocalHide, onUpdate, onClose }) {
   const [color, setColor] = useState(COLOR_PRESETS[2]);
   const [error, setError] = useState("");
   const [admin, setAdmin] = useState(false);
+  const [remind, setRemind] = useState(false);
   const [busy, setBusy] = useState(false);
   const active = users.filter((u) => !u.hidden && !localHidden.includes(u.id));
   const localList = users.filter((u) => !u.hidden && localHidden.includes(u.id));
   const archived = users.filter((u) => u.hidden);
 
-  function openEdit(u) { setEditingId(u.id); setAdding(false); setName(u.name); setColor(u.color); setAdmin(u.admin === true); setError(""); }
+  function openEdit(u) { setEditingId(u.id); setAdding(false); setName(u.name); setColor(u.color); setAdmin(u.admin === true); setRemind(u.remindYesterday === true); setError(""); }
   function openAdd() {
     const used = users.map((u) => u.color.toUpperCase());
     setAdding(true); setEditingId(null); setName("");
@@ -1254,8 +1269,8 @@ function UserManager({ users, localHidden, onLocalHide, onUpdate, onClose }) {
         const bad = validName(list, editingId); if (bad) return bad;
         return list.map((u) => {
           if (u.id !== editingId) return u;
-          const { admin: _old, ...rest } = u;
-          return { ...rest, name: n, color: c, ...(admin ? { admin: true } : {}) };
+          const { admin: _old, remindYesterday: _oldRemind, ...rest } = u;
+          return { ...rest, name: n, color: c, ...(admin ? { admin: true } : {}), ...(remind ? { remindYesterday: true } : {}) };
         });
       }, closeForm);
     }
@@ -1292,6 +1307,18 @@ function UserManager({ users, localHidden, onLocalHide, onUpdate, onClose }) {
           <span className="text-sm">
             <span className="font-semibold">Administratör</span>
             <span className="block text-xs" style={{ color: MUTED }}>Ser säkerhetskopia, återställning och påminnelse, på alla enheter där den här personen är vald.</span>
+          </span>
+        </button>
+      )}
+      {editingId && (
+        <button type="button" role="switch" aria-checked={remind} data-testid="user-remind-switch" onClick={() => setRemind((v) => !v)}
+                className="w-full flex items-center gap-3 text-left mt-1" style={{ minHeight: 44, color: INK }}>
+          <span className="inline-flex items-center rounded-full shrink-0" style={{ width: 40, height: 24, padding: 2, backgroundColor: remind ? ACCENT : LINE2, justifyContent: remind ? "flex-end" : "flex-start" }}>
+            <span className="inline-block rounded-full" style={{ width: 20, height: 20, backgroundColor: CARD }} />
+          </span>
+          <span className="text-sm">
+            <span className="font-semibold">Påminn om igår</span>
+            <span className="block text-xs" style={{ color: MUTED }}>Visar en rad på Logga pass när gårdagen inte är loggad.</span>
           </span>
         </button>
       )}
@@ -1734,6 +1761,8 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const [sheetVv, setSheetVv] = useState(null);
   const [swipeDir, setSwipeDir] = useState(""); // "l" | "r": which way the page slides in after a swipe (empty after a tab tap)
   const sheetStash = React.useRef(null);
+  const [skipYesterday, setSkipYesterday] = useState(loadSkipYesterday);
+  const [clockTick, setClockTick] = useState(0); // lets the reminder appear at 06:00 without a reload
   const [users, setUsers] = useState(loadCachedUsers); // last known list, so colours are right from the first paint
   const [usersLoaded, setUsersLoaded] = useState(false); // until the real list is read, a device's own person must not be judged against the default list
   const [showUsers, setShowUsers] = useState(false);
@@ -2878,6 +2907,15 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
       .slice(0, RECENT_LIMIT),
     [recentData, form.user, queuedIds]
   );
+  useEffect(() => { const t = setInterval(() => setClockTick((n) => n + 1), 300000); return () => clearInterval(t); }, []);
+  const remindOn = (users.find((u) => u.id === form.user) || {}).remindYesterday === true;
+  const yIso = addDaysIso(todayISO(), -1);
+  const yLogged = recentData.data.some((e) => (e.user || "niva") === form.user && e.date === yIso)
+    || pending.some((a) => (a.entry.user || "niva") === form.user && a.entry.date === yIso);
+  const showYesterday = remindOn && usersLoaded && recentData.key !== null && new Date().getHours() >= REMIND_FROM_HOUR && !yLogged
+    && skipYesterday[form.user] !== yIso && !editingId && !editingPending && clockTick >= 0;
+  const yName = WEEKDAY_LONG[(isoToDate(yIso).getUTCDay() + 6) % 7];
+  const dismissYesterday = () => setSkipYesterday((prev) => { const n = { ...prev, [form.user]: yIso }; saveSkipYesterday(n); return n; });
   const openHistoryFromLog = () => { setHistMonth(monthKeyOf(todayISO())); setSwipeDir(""); setView("hist"); };
 
   const painTrendCard = (
@@ -3469,6 +3507,18 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
         <div key={view} data-testid="view-wrap" data-dir={swipeDir || ""} className={swipeDir ? `swipe-in-${swipeDir}` : ""}>
         {view === "logga" && (
           <div className="space-y-5">
+            {showYesterday && (
+              <div data-testid="yesterday-reminder" className="flex items-stretch rounded-xl border" style={{ borderColor: LINE, backgroundColor: CARD }}>
+                <button type="button" data-testid="yesterday-log" onClick={() => setForm((f) => ({ ...f, date: yIso }))}
+                        className="flex-1 text-left text-sm px-3 py-2" style={{ minHeight: 44, color: INK }}>
+                  Igår ({yName}) är inte loggad. <span className="font-bold underline" style={{ color: ACCENT_DARK }}>Gör det nu</span>.
+                </button>
+                <button type="button" data-testid="yesterday-dismiss" aria-label="Dölj påminnelsen för igår" onClick={dismissYesterday}
+                        className="flex items-center justify-center shrink-0" style={{ width: 44, minHeight: 44, color: MUTED }}>
+                  <X size={16} aria-hidden="true" />
+                </button>
+              </div>
+            )}
             <Card>
               {(editingId || editingPending) && (
                 <div className="flex items-center justify-between mb-4 pb-3 border-b"
