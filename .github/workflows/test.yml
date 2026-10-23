@@ -1,0 +1,68 @@
+# Builds index.html from src/ and runs all acceptance tests (mock Firebase + Playwright).
+# Pages still serves index.html straight from main, so this is a safety net: a red mark
+# (and an e-mail from GitHub) means the version just pushed should be looked at.
+name: Bygg och testa
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Bygg index.html
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: python3 build.py
+      - name: index.html i repot ska vara samma som bygget
+        run: |
+          if ! cmp -s index.html <(git show HEAD:index.html); then
+            echo "::error::index.html i repot skiljer sig från bygget av src/. Kör python3 build.py och pusha igen."
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: index-html
+          path: index.html
+          retention-days: 7
+
+  test:
+    name: Tester (${{ matrix.group }})
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { group: "1", tests: "150 151 152 153 155" }
+          - { group: "2", tests: "160 161 162 164 165 166" }
+          - { group: "3", tests: "170 172 173 174 175" }
+          - { group: "4", tests: "176 177 178 179" }
+          - { group: "5", tests: "180 181 182" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: index-html
+          path: .
+      - run: pip install playwright
+      - run: playwright install --with-deps chromium
+      - name: Kör testerna efter varandra
+        run: python3 tools/run_group.py ${{ matrix.tests }}

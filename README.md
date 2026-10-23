@@ -22,6 +22,8 @@ En delad träningsdagbok för familjen, byggd som **en enda HTML-fil** (`index.h
 | `build.py` | Bygger `index.html` av källkoden. |
 | `icon.png` | Appikonen (512×512), bäddas in i `index.html`. |
 | `tools/mock-firebase.js` | Lokal låtsasserver för Firebase, för tester utan internet. |
+| `tools/test_*.py`, `tools/run_group.py` | Acceptanstester (Playwright mot låtsasservern) och en körare som tar om ett fallerat test en gång. |
+| `.github/workflows/test.yml` | GitHub Actions: bygger och testar vid varje push till `main`. |
 | `CHANGELOG.md` | Versionshistorik. |
 
 ### Bygga en ny `index.html`
@@ -54,6 +56,8 @@ Ladda sedan upp den nya `index.html` till GitHub (ersätter den gamla) och tryck
 
 ### Att tänka på
 
+- **Repot är facit.** Källkoden i `griminell/training` (`main`) gäller. Kopior på andra ställen (till exempel i ett Claude-projekt) kan vara äldre.
+- **Automatisk kontroll:** vid varje push bygger GitHub `index.html` och kör testerna. Röd markering (och mejl från GitHub) betyder att senaste versionen bör ses över. Sidan publiceras ändå direkt, eftersom Pages visar `index.html` från `main`.
 - Repot är publikt. Lägg aldrig databaskoder eller länkar med `#db=…&code=…` här.
 - Hälsouppgifter om barn är känsliga – dela bara kopplingslänken inom familjen.
 
@@ -77,6 +81,8 @@ A shared training diary for the family, built as **a single HTML file** (`index.
 | `build.py` | Builds `index.html` from the source. |
 | `icon.png` | The app icon (512×512), embedded into `index.html`. |
 | `tools/mock-firebase.js` | Local fake Firebase server for offline testing. |
+| `tools/test_*.py`, `tools/run_group.py` | Acceptance tests (Playwright against the fake server) and a runner that retries a failed test once. |
+| `.github/workflows/test.yml` | GitHub Actions: builds and tests on every push to `main`. |
 | `CHANGELOG.md` | Version history. |
 
 ### Building a new `index.html`
@@ -109,5 +115,7 @@ Then upload the new `index.html` to GitHub (replacing the old one) and press **U
 
 ### Things to keep in mind
 
+- **The repo is the source of truth.** The code in `griminell/training` (`main`) is what counts; copies elsewhere (for example in a Claude project) may be older.
+- **Automatic check:** on every push GitHub builds `index.html` and runs the tests. A red mark (and an e-mail from GitHub) means the latest version should be looked at. The site is still published immediately, since Pages serves `index.html` from `main`.
 - The repo is public. Never commit database codes or links containing `#db=…&code=…`.
 - Health data about a child is sensitive – only share the connection link within the family.

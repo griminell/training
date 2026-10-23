@@ -1,5 +1,10 @@
 # Changelog / Ändringslogg
 
+## 1.8.3 – 2026-10-23
+
+- Automatiskt bygge och test hos GitHub (GitHub Actions) vid varje push. Ingen ändring i appens funktioner
+- Kontrollerar också att index.html i repot är samma som bygget av src/
+
 ## 1.8.2 – 2026-10-23
 
 - Påminn om igår: växel per person i Hantera användare (Redigera), avstängd som standard. Gäller på alla enheter där personen väljs

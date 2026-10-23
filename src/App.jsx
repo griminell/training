@@ -5,10 +5,12 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, ChevronRight, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun, History, Search, SlidersHorizontal } from "lucide-react";
 
-export const APP_VERSION = "1.8.2";
+export const APP_VERSION = "1.8.3";
 export const APP_DATE = "2026-10-23";
 
 const CHANGELOG = [
+  { version: "1.8.3", date: "2026-10-23", items: [
+    "Bakom kulisserna: varje ny version byggs och testas nu automatiskt hos GitHub. Inga ändringar i appens utseende eller funktioner" ] },
   { version: "1.8.2", date: "2026-10-23", items: [
     "Påminn om igår: en växel per person i Hantera användare (Redigera), avstängd som standard",
     "Är den på visas raden Igår (torsdag) är inte loggad. Gör det nu. överst på Logga pass. Tryck på texten för att logga igår, eller på krysset för att dölja raden",
