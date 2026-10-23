@@ -5,10 +5,12 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, ChevronRight, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun, History, Search, SlidersHorizontal } from "lucide-react";
 
-export const APP_VERSION = "1.8.3";
+export const APP_VERSION = "1.8.4";
 export const APP_DATE = "2026-10-23";
 
 const CHANGELOG = [
+  { version: "1.8.4", date: "2026-10-23", items: [
+    "Bakom kulisserna: den automatiska kontrollen hos GitHub är uppdaterad så att den inte slutar fungera när GitHub byter version. Inga ändringar i appen" ] },
   { version: "1.8.3", date: "2026-10-23", items: [
     "Bakom kulisserna: varje ny version byggs och testas nu automatiskt hos GitHub. Inga ändringar i appens utseende eller funktioner" ] },
   { version: "1.8.2", date: "2026-10-23", items: [

@@ -1,5 +1,9 @@
 # Changelog / Ändringslogg
 
+## 1.8.4 – 2026-10-23
+
+- Den automatiska kontrollen hos GitHub kör på en fast Ubuntu-version (24.04) och nyare versioner av GitHubs standardsteg, så att den inte ändras av sig själv. Ingen ändring i appen
+
 ## 1.8.3 – 2026-10-23
 
 - Automatiskt bygge och test hos GitHub (GitHub Actions) vid varje push. Ingen ändring i appens funktioner

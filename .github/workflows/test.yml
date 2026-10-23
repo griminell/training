@@ -16,10 +16,10 @@ concurrency:
 jobs:
   build:
     name: Bygg index.html
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -31,7 +31,7 @@ jobs:
             echo "::error::index.html i repot skiljer sig från bygget av src/. Kör python3 build.py och pusha igen."
             exit 1
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: index-html
           path: index.html
@@ -40,7 +40,7 @@ jobs:
   test:
     name: Tester (${{ matrix.group }})
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -51,14 +51,14 @@ jobs:
           - { group: "4", tests: "176 177 178 179" }
           - { group: "5", tests: "180 181 182" }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: index-html
           path: .
