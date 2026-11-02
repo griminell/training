@@ -49,7 +49,7 @@ jobs:
           - { group: "2", tests: "160 161 162 164 165 166" }
           - { group: "3", tests: "170 172 173 174 175" }
           - { group: "4", tests: "176 177 178 179" }
-          - { group: "5", tests: "180 181 182" }
+          - { group: "5", tests: "180 181 182 183" }
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6

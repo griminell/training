@@ -5,10 +5,15 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, ChevronRight, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun, History, Search, SlidersHorizontal } from "lucide-react";
 
-export const APP_VERSION = "1.8.4";
-export const APP_DATE = "2026-10-23";
+export const APP_VERSION = "1.8.5";
+export const APP_DATE = "2026-11-02";
 
 const CHANGELOG = [
+  { version: "1.8.5", date: "2026-11-02", items: [
+    "Nytt kort i Statistik: Mående, under Smärta. Visa Sömn, Energi eller båda samtidigt: en linje per dag (1–5) med belastningen svagt i bakgrunden. Sömn är heldragen blå linje, Energi streckad orange",
+    "Snitt och antal dagar med notering visas per vald sort ovanför diagrammet, och i Vecka och Månad jämförs snittet mot förra perioden (neutral pil och poängskillnad)",
+    "Energi är medelvärdet av dagens värden, Sömn det första värdet för dagen. Dagar utan notering visas som glapp",
+    "Rättat: diagrammet Smärta saknade siffror på lodräta axeln (0, 5, 10) och stödlinjer. Nu syns de" ] },
   { version: "1.8.4", date: "2026-10-23", items: [
     "Bakom kulisserna: den automatiska kontrollen hos GitHub är uppdaterad så att den inte slutar fungera när GitHub byter version. Inga ändringar i appen" ] },
   { version: "1.8.3", date: "2026-10-23", items: [
@@ -521,8 +526,12 @@ function topCode(counts) {
   Object.entries(counts || {}).forEach(([k, v]) => { if (v > n) { best = k; n = v; } });
   return best;
 }
+// Line colours of the Mående card (sleep, energy), set together with the colour maps for the current theme.
+let WELL_COLORS = { sleep: CAT_CANDIDATES[0], energy: CAT_CANDIDATES[1] };
 function setColorMaps(userUsage, accent, dark) {
   const pal = categoricalPalette(accent, dark);
+  const cardBg = NEUTRALS[dark ? "dark" : "light"].CARD;
+  WELL_COLORS = { sleep: fitContrast3(CAT_CANDIDATES[0], cardBg), energy: fitContrast3(CAT_CANDIDATES[1], cardBg) };   // blue / orange
   const sport = {}, typ = {};
   Object.keys(SPORT_COLOR_SLOT).forEach((code) => { sport[code] = pal[SPORT_COLOR_SLOT[code] % pal.length]; });
   TYPES.forEach((t, i) => { typ[t.code] = pal[(i + 5) % pal.length]; });
@@ -1484,27 +1493,33 @@ function daysOfMonthKey(key) {
   while (d.slice(0, 7) === key) { out.push(d); d = addDaysIso(d, 1); }
   return out;
 }
+// The days shown on the x axis of a period chart: [{ date, x }]. Week = Mon-Sun, month = every day, all = first to last entry.
+function chartDays(entries, scope, week, month) {
+  let days;
+  if (scope === "week") days = Array.from({ length: 7 }, (_, i) => addDaysIso(week, i));
+  else if (scope === "month") days = daysOfMonthKey(month);
+  else {
+    const dates = entries.map((e) => e.date).sort();
+    days = [];
+    if (dates.length) {
+      const a = dates[0], b = dates[dates.length - 1];
+      for (let d = a; d <= b && days.length < 400; d = addDaysIso(d, 1)) days.push(d);
+      if (days.length >= 400 || addDaysIso(a, 399) < b) days = [...new Set(dates)];
+    }
+  }
+  return days.map((d, i) => ({ date: d, x: scope === "week" ? WEEKDAY_SHORT[i] : scope === "month" ? String(parseInt(d.slice(8), 10)) : d.slice(5) }));
+}
+// NOTE (charts with a hidden load axis): the visible Y axis must keep the default axis id. With a custom yAxisId next to a hidden
+// axis, Recharts draws neither the tick numbers nor the horizontal grid lines.
 function PainTrendCard({ entries, loadMap, scope, week, month, hints, part, onPart }) {
   const parts = useMemo(() => painKeysOf(entries), [entries]);
   const sel = parts.find((x) => x.key === part) || parts[0] || null;
   const data = useMemo(() => {
     if (!sel) return [];
     const max = painDayMax(entries, sel.key);
-    let days;
-    if (scope === "week") days = Array.from({ length: 7 }, (_, i) => addDaysIso(week, i));
-    else if (scope === "month") days = daysOfMonthKey(month);
-    else {
-      const dates = entries.map((e) => e.date).sort();
-      days = [];
-      if (dates.length) {
-        const a = dates[0], b = dates[dates.length - 1];
-        for (let d = a; d <= b && days.length < 400; d = addDaysIso(d, 1)) days.push(d);
-        if (days.length >= 400 || addDaysIso(a, 399) < b) days = [...new Set(dates)];
-      }
-    }
-    return days.map((d, i) => ({
+    return chartDays(entries, scope, week, month).map(({ date: d, x }) => ({
       date: d,
-      x: scope === "week" ? WEEKDAY_SHORT[i] : scope === "month" ? String(parseInt(d.slice(8), 10)) : d.slice(5),
+      x,
       pain: max[d] === undefined ? null : max[d],
       load: Math.round(loadMap[d] || 0),
     }));
@@ -1537,11 +1552,11 @@ function PainTrendCard({ entries, loadMap, scope, week, month, hints, part, onPa
             <ComposedChart data={data} margin={CHART_MARGIN}>
               <CartesianGrid strokeDasharray="3 3" stroke={GRIDC} vertical={false} />
               <XAxis dataKey="x" tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: AXISC }} tickLine={false} interval="preserveStartEnd" minTickGap={14} />
-              <YAxis yAxisId="pain" domain={[0, 10]} ticks={[0, 5, 10]} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={40} />
+              <YAxis domain={[0, 10]} ticks={[0, 5, 10]} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={40} />
               <YAxis yAxisId="load" hide domain={[0, (m) => Math.max(m, 1)]} />
               <Tooltip {...tipProps()} formatter={(v, name) => [v, name]} />
               <Bar yAxisId="load" dataKey="load" name="Belastning" fill={ACCENT} fillOpacity={0.18} isAnimationActive={false} />
-              <Line yAxisId="pain" type="monotone" dataKey="pain" name="Smärta" stroke={DANGER} strokeWidth={2} connectNulls={false}
+              <Line type="monotone" dataKey="pain" name="Smärta" stroke={DANGER} strokeWidth={2} connectNulls={false}
                     dot={{ r: 4, fill: DANGER, stroke: DANGER }} activeDot={{ r: 5 }} isAnimationActive={false} />
             </ComposedChart>
           </ResponsiveContainer>
@@ -1555,6 +1570,134 @@ function PainTrendCard({ entries, loadMap, scope, week, month, hints, part, onPa
           Smärta på 5 eller mer i {h.label} har noterats {h.n} av de senaste {h.win} loggade dagarna. Om den inte går över kan det vara bra att kontakta fysio eller läkare.
         </div>
       ))}
+    </Card>
+  );
+}
+
+// ---- Wellbeing trend (sleep / energy, 1-5) ----
+// Both series can be shown at once: sleep = solid line + round dots, energy = dashed line + square dots (also readable without colour).
+const WELL_METRICS = {
+  sleep: { title: "Sömn", labels: SLEEP_LABELS, empty: "Ingen sömn noterad den här perioden." },
+  energy: { title: "Energi", labels: ENERGY_LABELS, empty: "Ingen energi noterad den här perioden." },
+};
+// One value per day: sleep = the first value of the day (same night), energy = the mean of the day's values.
+function wellByDay(entries, field) {
+  const acc = {};
+  [...entries].sort((a, b) => String(a.id).localeCompare(String(b.id))).forEach((e) => {
+    const v = String(e[field] || "");
+    if (!/^[1-5]$/.test(v)) return;
+    (acc[e.date] = acc[e.date] || []).push(Number(v));
+  });
+  const out = {};
+  Object.keys(acc).forEach((d) => { out[d] = field === "sleep" ? acc[d][0] : acc[d].reduce((a, b) => a + b, 0) / acc[d].length; });
+  return out;
+}
+function wellStat(map) {
+  const v = Object.values(map);
+  return v.length ? { avg: v.reduce((a, b) => a + b, 0) / v.length, n: v.length } : null;
+}
+const fmt1 = (n) => n.toFixed(1).replace(".", ",");
+// Small legend mark that shows how the series is drawn (line style + dot shape).
+function WellMark({ metric, on }) {
+  const color = on ? WELL_COLORS[metric] : MUTED;
+  return (
+    <svg width="26" height="12" viewBox="0 0 26 12" aria-hidden="true" data-testid="well-swatch" data-metric={metric} style={{ flex: "none" }}>
+      <line x1="1" y1="6" x2="25" y2="6" stroke={color} strokeWidth="2" strokeDasharray={metric === "energy" ? "5 3" : undefined} />
+      {metric === "energy" ? <rect x="9" y="2" width="8" height="8" fill={color} /> : <circle cx="13" cy="6" r="4" fill={color} />}
+    </svg>
+  );
+}
+function WellbeingTrendCard({ entries, loadMap, scope, week, month, metrics, onMetrics, prev, cmpKind }) {
+  const maps = useMemo(() => ({ sleep: wellByDay(entries, "sleep"), energy: wellByDay(entries, "energy") }), [entries]);
+  const stats = useMemo(() => ({ sleep: wellStat(maps.sleep), energy: wellStat(maps.energy) }), [maps]);
+  const any = !!(stats.sleep || stats.energy);
+  const keys = Object.keys(WELL_METRICS);
+  const active = keys.filter((k) => metrics.includes(k));
+  const shown = active.length ? active : ["sleep"];
+  const toggle = (k) => {
+    if (shown.includes(k)) { if (shown.length > 1) onMetrics(shown.filter((x) => x !== k)); }
+    else onMetrics(keys.filter((x) => x === k || shown.includes(x)));
+  };
+  const data = useMemo(() => chartDays(entries, scope, week, month).map(({ date, x }) => ({
+    date, x,
+    sleep: maps.sleep[date] === undefined ? null : Math.round(maps.sleep[date] * 10) / 10,
+    energy: maps.energy[date] === undefined ? null : Math.round(maps.energy[date] * 10) / 10,
+    load: Math.round(loadMap[date] || 0),
+  })), [entries, scope, week, month, maps, loadMap]);
+  const showCmp = !!cmpKind && !!prev;
+  const drawChart = shown.some((k) => stats[k]);
+  const squareDot = (pr) => (pr.cx == null || pr.cy == null || pr.value == null
+    ? <g key={pr.index} />
+    : <rect key={pr.index} data-testid="well-dot-energy" x={pr.cx - 4} y={pr.cy - 4} width={8} height={8} fill={WELL_COLORS.energy} />);
+  const tipFormat = (v, name) => {
+    const k = keys.find((x) => WELL_METRICS[x].title === name);
+    return k ? [`${fmt1(v)} – ${WELL_METRICS[k].labels[Math.min(4, Math.max(0, Math.round(v) - 1))]}`, name] : [v, name];
+  };
+  return (
+    <Card>
+      <div className="text-xs font-bold mb-3" style={{ color: ACCENT_DARK }}>MÅENDE</div>
+      {!any ? (
+        <p className="text-sm" data-testid="well-empty" style={{ color: MUTED }}>Ingen sömn eller energi noterad den här perioden.</p>
+      ) : (
+        <>
+          <div role="group" aria-label="Visa i diagrammet" className="flex flex-wrap gap-2 mb-3" data-testid="well-metrics">
+            {keys.map((k) => {
+              const on = shown.includes(k);
+              return (
+                <button key={k} type="button" data-testid="well-metric" data-metric={k} aria-pressed={on} onClick={() => toggle(k)}
+                        className="px-4 rounded-full text-sm font-semibold border inline-flex items-center gap-2"
+                        style={{ minHeight: 44, borderWidth: 2, borderColor: on ? WELL_COLORS[k] : LINE2, backgroundColor: CARD, color: on ? INK : MUTED }}>
+                  <WellMark metric={k} on={on} />{WELL_METRICS[k].title}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex flex-col gap-1 mb-2" data-testid="well-stats">
+            {shown.map((k) => {
+              const st = stats[k];
+              if (!st) return <div key={k} className="text-xs" data-testid="well-metric-empty" data-metric={k} style={{ color: MUTED }}>{WELL_METRICS[k].empty}</div>;
+              const d = showCmp && prev && prev[k] ? pointDelta(st.avg, prev[k].avg) : null;
+              return (
+                <div key={k} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs" data-testid="well-stat" data-metric={k} style={{ color: MUTED }}>
+                  <span className="inline-flex items-center gap-1.5 font-bold" style={{ color: INK }}><WellMark metric={k} on />{WELL_METRICS[k].title}</span>
+                  <span className="inline-flex items-center gap-1.5">Snitt <b style={{ color: INK }} data-testid={`well-avg-${k}`}>{fmt1(st.avg)}</b>
+                    {showCmp && <><Delta d={d} testid={`well-delta-${k}`} /><span data-testid={`well-cmp-label-${k}`}>mot förra {cmpKind === "week" ? "veckan" : "månaden"}</span></>}
+                  </span>
+                  <span>Dagar med notering <b style={{ color: INK }} data-testid={`well-days-${k}`}>{st.n}</b></span>
+                </div>
+              );
+            })}
+          </div>
+          {drawChart && (
+            <>
+              <div data-testid="well-chart">
+                <ResponsiveContainer width="100%" height={180}>
+                  <ComposedChart data={data} margin={CHART_MARGIN}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={GRIDC} vertical={false} />
+                    <XAxis dataKey="x" tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: AXISC }} tickLine={false} interval="preserveStartEnd" minTickGap={14} />
+                    <YAxis domain={[1, 5]} ticks={[1, 2, 3, 4, 5]} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={40} />
+                    <YAxis yAxisId="load" hide domain={[0, (mx) => Math.max(mx, 1)]} />
+                    <Tooltip {...tipProps()} formatter={tipFormat} />
+                    <Bar yAxisId="load" dataKey="load" name="Belastning" fill={ACCENT} fillOpacity={0.18} isAnimationActive={false} />
+                    {shown.includes("sleep") && stats.sleep && (
+                      <Line type="monotone" dataKey="sleep" name={WELL_METRICS.sleep.title} stroke={WELL_COLORS.sleep} strokeWidth={2} connectNulls={false}
+                            dot={{ r: 4, fill: WELL_COLORS.sleep, stroke: WELL_COLORS.sleep }} activeDot={{ r: 5 }} isAnimationActive={false} />
+                    )}
+                    {shown.includes("energy") && stats.energy && (
+                      <Line type="monotone" dataKey="energy" name={WELL_METRICS.energy.title} stroke={WELL_COLORS.energy} strokeWidth={2} strokeDasharray="6 4" connectNulls={false}
+                            dot={squareDot} activeDot={{ r: 5 }} isAnimationActive={false} />
+                    )}
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="text-xs mt-1" data-testid="well-note" style={{ color: MUTED }}>
+                {[shown.includes("sleep") && "Heldragen linje: sömn per dag.", shown.includes("energy") && "Streckad linje: energi per dag, medelvärde av dagens värden."].filter(Boolean).join(" ")}
+                {" "}Skala 1–5, där 5 är {[shown.includes("sleep") && "toppen", shown.includes("energy") && "laddad"].filter(Boolean).join(" respektive ")}. Staplar: belastning. Dagar utan notering visas som glapp.
+              </div>
+            </>
+          )}
+        </>
+      )}
     </Card>
   );
 }
@@ -1759,6 +1902,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const [histDay, setHistDay] = useState(null);
   const [histFiltersOpen, setHistFiltersOpen] = useState(false);
   const [statsPart, setStatsPart] = useState(null);
+  const [statsWell, setStatsWell] = useState(["sleep", "energy"]);
   const [recentData, setRecentData] = useState({ key: null, data: [] }); // this and last month, for the persistent-pain hint
   const setHistMode = (m) => { setHistModeState(m); try { localStorage.setItem(HIST_MODE_KEY, m); } catch (e) {} };
   const sheetOpenRef = React.useRef(false);
@@ -2852,6 +2996,16 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
     };
   }, [cmp, prevData, statsUserShown, summary]);
 
+  // Wellbeing of the comparable slice of the previous period (rest/sick days count too: they can carry sleep and energy).
+  const prevWell = useMemo(() => {
+    if (!cmp || prevData.key !== cmp.key) return null;
+    const mine = prevData.data.filter((e) => (e.user || "niva") === statsUserShown);
+    const slice = cmp.kind === "week"
+      ? mine.filter((e) => e.date >= cmp.from && e.date <= cmp.cut)
+      : mine.filter((e) => parseInt(e.date.slice(8), 10) <= cmp.maxDay);
+    return { sleep: wellStat(wellByDay(slice, "sleep")), energy: wellStat(wellByDay(slice, "energy")) };
+  }, [cmp, prevData, statsUserShown]);
+
   // Week chart: add last week's load per weekday (drawn as thin ticks over the bars).
   const loadChart = useMemo(() => {
     if (statsScope !== "week" || !prevCmp || !cmp || cmp.kind !== "week") return { data: loadByDate, ghost: false };
@@ -2925,6 +3079,10 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
   const painTrendCard = (
     <PainTrendCard entries={statsBase} loadMap={painLoadMap} scope={statsScope} week={statsWeek} month={selectedMonth}
                    hints={painHints} part={statsPart} onPart={setStatsPart} />
+  );
+  const wellbeingCard = (
+    <WellbeingTrendCard entries={statsBase} loadMap={painLoadMap} scope={statsScope} week={statsWeek} month={selectedMonth}
+                        metrics={statsWell} onMetrics={setStatsWell} prev={prevWell} cmpKind={cmp ? cmp.kind : null} />
   );
   const offDayCard = (
     <Card>
@@ -3871,6 +4029,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 </Card>
                 {offDayCard}
                 {painTrendCard}
+                {wellbeingCard}
               </>
             ) : (
               <>
@@ -3953,6 +4112,7 @@ export default function TraningsDagbok({ connLink, onDisconnect }) {
                 </Card>
 
                 {painTrendCard}
+                {wellbeingCard}
 
                 <div className="grid sm:grid-cols-2 gap-4">
                   <Card>

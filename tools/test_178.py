@@ -106,7 +106,7 @@ with sync_playwright() as pw:
 
     # ---- reminder timing ----
     def reminder_case(days, expect_reminder, status_expect, port_):
-        MODE["m"] = "full-admin"; MODE["backup"] = (dt.datetime.utcnow() - dt.timedelta(days=days)).isoformat() + "Z"
+        MODE["m"] = "full-admin"; MODE["backup"] = (dt.datetime.fromtimestamp(FAKE_NOW_MS / 1000, dt.timezone.utc).replace(tzinfo=None) - dt.timedelta(days=days)).isoformat() + "Z"   # relative to the test clock
         mm = start_mock(port_)
         try:
             c, Pp = open_app(browser, port_, "grim", "light", "light"); Pp.wait_for_timeout(900)

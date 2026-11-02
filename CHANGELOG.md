@@ -1,5 +1,12 @@
 # Changelog / Ändringslogg
 
+## 1.8.5 – 2026-11-02
+
+- Nytt kort i Statistik: Mående, under Smärta. Visa Sömn, Energi eller båda samtidigt: linje per dag (1–5), belastning svagt i bakgrunden, snitt och antal dagar med notering per sort. Sömn är heldragen blå linje med runda prickar, Energi streckad orange linje med kvadratiska prickar
+- Vecka och Månad jämför snittet mot förra perioden (neutral pil och poängskillnad, samma regel som tiderna)
+- Energi är medelvärdet av dagens värden, Sömn det första värdet för dagen. Dagar utan notering visas som glapp
+- Rättat: diagrammet Smärta saknade siffror på lodräta axeln (0, 5, 10) och stödlinjer. Nu syns de
+
 ## 1.8.4 – 2026-10-23
 
 - Den automatiska kontrollen hos GitHub kör på en fast Ubuntu-version (24.04) och nyare versioner av GitHubs standardsteg, så att den inte ändras av sig själv. Ingen ändring i appen

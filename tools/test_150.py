@@ -263,6 +263,7 @@ with sync_playwright() as pw:
     try:
         ctx, P = open_app(browser, port); P.wait_for_timeout(800)
         P.get_by_role("button", name="Statistik").click(); P.wait_for_timeout(500)
+        P.get_by_role("button", name="Alla månader", exact=True).first.click(); P.wait_for_timeout(700)   # seed data is from fixed months
         check("9 Old passes still load in stats", P.locator("text=Antal pass").count() == 1)
         P.get_by_role("button", name="Logga pass").click()
         # CSV import (new rows) through saveMonth

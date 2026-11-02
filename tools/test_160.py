@@ -18,7 +18,14 @@ def check(name, cond, extra=""):
     results.append((name, bool(cond)))
     print(("PASS " if cond else "FAIL ") + name + (f"  [{extra}]" if extra else ""))
 
-TODAY = datetime.datetime.now(datetime.timezone.utc).date()
+# The tests run on a FIXED clock (2026-10-23, 12:00 UTC) so that they do not depend on the real calendar
+# (month boundaries, Mondays). The browser clock is shifted with an init script in open_app; test code uses TODAY.
+TODAY = datetime.date(2026, 10, 23)
+FAKE_NOW_MS = int(datetime.datetime(2026, 10, 23, 12, 0, tzinfo=datetime.timezone.utc).timestamp() * 1000)
+def clock_script():
+    off = FAKE_NOW_MS - int(time.time() * 1000)
+    return ("(() => { const R = Date, off = %d; class F extends R { constructor(...a) { if (a.length === 0) super(R.now() + off); else super(...a); } "
+            "static now() { return R.now() + off; } } window.Date = F; })();" % off)
 M = TODAY.strftime("%Y-%m")
 USERS = [{"id": "niva", "name": "Niva", "color": "#C2477A"}, {"id": "grim", "name": "Grim", "color": "#004B26"},
          {"id": "anna", "name": "Anna", "color": "#1D6FA5", "colorDark": "#7CCBF0"}, {"id": "bo", "name": "Bo", "color": "#6B3FA0"}]
@@ -52,6 +59,7 @@ def open_app(browser, port, me="niva", mode=None, scheme="light", ctx=None):
     page = ctx.new_page(); page.errors = []
     page.on("pageerror", lambda e: page.errors.append(str(e)))
     init = f"try {{ localStorage.setItem('nivadagbok-me', '{me}'); " + (f"localStorage.setItem('nivadagbok-theme', '{mode}');" if mode else "") + " } catch (e) {}"
+    page.add_init_script(clock_script())
     if mode != "keep": page.add_init_script("if (!sessionStorage.getItem('t160')) { sessionStorage.setItem('t160','1'); " + init + " }")
     page.goto(f"{PAGE}#db=http://localhost:{port}&code={CODE}")
     page.wait_for_selector("[data-testid=person-chip]"); page.wait_for_timeout(700)
