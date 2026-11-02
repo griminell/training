@@ -1,5 +1,10 @@
 # Changelog / Ändringslogg
 
+## 1.8.6 – 2026-11-02
+
+- Ny aktivitet: Inomhus (kod IH), för pass på gym eller hemma, till exempel med onlinepass. Ligger efter Barmarksträning under Fler och har en egen fast färg
+- Tidigare pass och färger är oförändrade
+
 ## 1.8.5 – 2026-11-02
 
 - Nytt kort i Statistik: Mående, under Smärta. Visa Sömn, Energi eller båda samtidigt: linje per dag (1–5), belastning svagt i bakgrunden, snitt och antal dagar med notering per sort. Sömn är heldragen blå linje med runda prickar, Energi streckad orange linje med kvadratiska prickar

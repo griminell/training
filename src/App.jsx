@@ -5,10 +5,13 @@ import {
 } from "recharts";
 import { CalendarDays, ClipboardList, BarChart3, Trash2, Check, Download, Loader2, ChevronDown, ChevronRight, Pencil, X, Upload, Users, Eye, Plus, AlertTriangle, RotateCw, Repeat, Moon, Thermometer, EyeOff, Copy, Unplug, Sun, History, Search, SlidersHorizontal } from "lucide-react";
 
-export const APP_VERSION = "1.8.5";
+export const APP_VERSION = "1.8.6";
 export const APP_DATE = "2026-11-02";
 
 const CHANGELOG = [
+  { version: "1.8.6", date: "2026-11-02", items: [
+    "Ny aktivitet: Inomhus, för pass på gym eller hemma (till exempel med onlinepass). Den ligger efter Barmarksträning under Fler och har en egen färg i statistiken",
+    "Tidigare pass och färger är oförändrade" ] },
   { version: "1.8.5", date: "2026-11-02", items: [
     "Nytt kort i Statistik: Mående, under Smärta. Visa Sömn, Energi eller båda samtidigt: en linje per dag (1–5) med belastningen svagt i bakgrunden. Sömn är heldragen blå linje, Energi streckad orange",
     "Snitt och antal dagar med notering visas per vald sort ovanför diagrammet, och i Vecka och Månad jämförs snittet mot förra perioden (neutral pil och poängskillnad)",
@@ -487,13 +490,14 @@ const SPORTS = [
   { code: "PR", label: "Promenad" },
   { code: "CY", label: "Cykel" },
   { code: "BA", label: "Barmarksträning" },
+  { code: "IH", label: "Inomhus" },
   { code: "PI", label: "Pingis" },
   { code: "YO", label: "Yoga" },
   { code: "PL", label: "Pilates" },
   { code: "A", label: "Annat" },
 ];
 // Stable colour slot per activity in the distribution chart (existing activities keep their colours).
-const SPORT_COLOR_SLOT = { F: 0, S: 1, "LÖ": 2, AL: 3, PI: 4, PR: 5, CY: 6, RU: 7, A: 8, H: 9, YO: 10, PL: 11, BA: 12 };
+const SPORT_COLOR_SLOT = { F: 0, S: 1, "LÖ": 2, AL: 3, PI: 4, PR: 5, CY: 6, RU: 7, A: 8, H: 9, YO: 10, PL: 11, BA: 12, IH: 13 };
 // ---- Categorical palette for activities and training types ----
 // Every activity/type keeps its own colour (fixed slot). The user's own colour goes to what the person has done most
 // (last 30 days), so it stands for the biggest slice. Candidates too close to the user's colour are left out.
@@ -515,9 +519,9 @@ function categoricalPalette(accent, dark) {
   const [ar, ag, ab] = hexToRgb(accent);
   const dist = (c) => { const [r, g, b] = hexToRgb(c); return Math.hypot(r - ar, g - ag, b - ab); };
   const far = CAT_CANDIDATES.filter((c) => dist(c) >= 100);
-  // 13 activities need 13 different colours (12 plus the user's own): top up with the next most distant ones
+  // 14 activities need 14 different colours (13 plus the user's own): top up with the next most distant ones
   const rest = CAT_CANDIDATES.filter((c) => dist(c) < 100).sort((a, b) => dist(b) - dist(a));
-  while (far.length < 13 && rest.length) far.push(rest.shift());
+  while (far.length < 14 && rest.length) far.push(rest.shift());
   return far.map((c) => fitContrast3(c, bg));
 }
 let COLOR_MAP = { sport: {}, typ: {} };
